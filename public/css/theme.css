@@ -1,0 +1,252 @@
+/* ============================================================================
+   Construction Robotics Workshop — design system
+   Adapted from the sstr.tech aesthetic: near-black industrial surfaces, a single
+   hot-orange accent, bold tightly-tracked uppercase display type, monospace
+   micro-labels with // prefixes, octagonal HUD framing, dot-grid texture.
+   ========================================================================== */
+
+:root {
+  --bg:        #0c0c0d;
+  --bg-2:      #161618;
+  --bg-3:      #1e1e21;
+  --panel:     #141416;
+  --line:      #2a2a2e;
+  --line-2:    #3a3a40;
+  --text:      #f2f2f0;
+  --text-dim:  #a0a0a2;
+  --text-mute: #6a6a6e;
+  --accent:    #ff4d1c;
+  --accent-2:  #ff6a3c;
+  --accent-dim:#7a2b16;
+
+  --ok:    #4ade80;   /* submitted / green  */
+  --work:  #facc15;   /* working / yellow   */
+  --idle:  #5a5a60;   /* not started / gray */
+  --sel:   #38bdf8;   /* selected / blue    */
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --sans: "Helvetica Neue", Helvetica, Arial, "Inter", system-ui, sans-serif;
+
+  --radius: 4px;
+  --gap: 20px;
+  --maxw: 1200px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100vh;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.045) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-2); }
+
+/* ---- Typography ---------------------------------------------------------- */
+
+.display, h1, h2, h3 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  line-height: 0.95;
+  margin: 0;
+}
+.display { font-size: clamp(2.5rem, 7vw, 6rem); }
+h1 { font-size: clamp(1.8rem, 4vw, 3rem); }
+h2 { font-size: 1.4rem; }
+h3 { font-size: 1.05rem; letter-spacing: 0; }
+
+.mono, .label, .tag {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+}
+.label { color: var(--text-mute); }
+.label::before { content: "// "; color: var(--accent); }
+.dim { color: var(--text-dim); }
+.mute { color: var(--text-mute); }
+.accent { color: var(--accent); }
+.center { text-align: center; }
+
+/* ---- Layout -------------------------------------------------------------- */
+
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 24px; }
+.row { display: flex; gap: var(--gap); }
+.col { display: flex; flex-direction: column; gap: var(--gap); }
+.grow { flex: 1; }
+.wrap-cols { display: flex; flex-wrap: wrap; gap: var(--gap); }
+.spread { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+/* Top status bar, HUD style */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(12,12,13,0.85);
+  backdrop-filter: blur(6px);
+  position: sticky; top: 0; z-index: 20;
+}
+.brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: -0.01em; }
+.brand .slashes { color: var(--accent); font-family: var(--mono); font-weight: 700; }
+
+/* ---- Panels / cards ------------------------------------------------------ */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  position: relative;
+}
+.panel.hud {
+  /* clipped corners for the technical HUD look */
+  clip-path: polygon(0 10px, 10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
+.panel-title { margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hr { height: 1px; background: var(--line); border: 0; margin: 16px 0; }
+
+/* ---- Buttons ------------------------------------------------------------- */
+
+button, .btn {
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  padding: 11px 16px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.05s;
+}
+button:hover, .btn:hover { border-color: var(--accent); color: #fff; }
+button:active, .btn:active { transform: translateY(1px); }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+button.primary, .btn.primary {
+  background: var(--accent); border-color: var(--accent); color: #120a06;
+}
+button.primary:hover { background: var(--accent-2); border-color: var(--accent-2); color: #120a06; }
+button.ghost { background: transparent; }
+button.danger:hover { border-color: #ef4444; color: #ef4444; }
+button.small { padding: 7px 10px; font-size: 0.68rem; }
+.btn-group { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ---- Forms --------------------------------------------------------------- */
+
+label.field { display: block; margin-bottom: 14px; }
+label.field > span { display: block; margin-bottom: 6px; }
+input[type=text], input[type=email], input[type=number], select, textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 11px 12px;
+  font-family: var(--sans);
+  font-size: 0.95rem;
+}
+textarea { min-height: 70px; resize: vertical; font-family: var(--sans); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+.choice-row { display: flex; gap: 8px; }
+.choice-row .choice {
+  flex: 1; text-align: center; padding: 10px; border: 1px solid var(--line-2);
+  border-radius: var(--radius); cursor: pointer; font-family: var(--mono);
+  text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em; user-select: none;
+}
+.choice-row .choice.active { border-color: var(--accent); background: var(--accent); color: #120a06; }
+.check { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+
+/* ---- Status pills -------------------------------------------------------- */
+
+.pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em;
+  text-transform: uppercase; padding: 4px 9px; border-radius: 999px;
+  border: 1px solid var(--line-2); color: var(--text-dim);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.st-not_started .dot, .st-idle .dot { background: var(--idle); }
+.st-working .dot { background: var(--work); box-shadow: 0 0 8px var(--work); }
+.st-submitted .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.st-selected .dot { background: var(--sel); box-shadow: 0 0 10px var(--sel); }
+.st-working { border-color: var(--work); color: var(--work); }
+.st-submitted { border-color: var(--ok); color: var(--ok); }
+.st-selected { border-color: var(--sel); color: var(--sel); }
+
+/* ---- Timer --------------------------------------------------------------- */
+
+.timer {
+  font-family: var(--mono); font-weight: 700; letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.timer.huge { font-size: clamp(4rem, 16vw, 12rem); line-height: 1; }
+.timer.big { font-size: 2.2rem; }
+.timer.low { color: var(--accent); }
+
+/* ---- Group / member chips ------------------------------------------------ */
+
+.chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--bg-3); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 8px 12px; font-size: 0.9rem;
+}
+.chip .role-ico { font-size: 0.8rem; }
+.grid { display: grid; gap: var(--gap); }
+.grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.grid.auto { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+
+.group-card { border-top: 3px solid var(--line-2); }
+.group-card.st-working { border-top-color: var(--work); }
+.group-card.st-submitted { border-top-color: var(--ok); }
+.group-card.st-selected { border-top-color: var(--sel); }
+.group-card h3 { display: flex; align-items: center; justify-content: space-between; }
+
+/* ---- Misc ---------------------------------------------------------------- */
+
+.qr { background: #fff; padding: 10px; border-radius: var(--radius); display: inline-block; }
+.qr img { display: block; width: 180px; height: 180px; }
+.code-big { font-family: var(--mono); font-weight: 800; font-size: clamp(2rem,6vw,4rem); letter-spacing: 0.15em; color: var(--accent); }
+.banner {
+  border: 1px solid var(--accent-dim); background: rgba(255,77,28,0.08);
+  border-radius: var(--radius); padding: 12px 14px; font-size: 0.85rem; color: var(--text-dim);
+}
+.banner.warn { border-color: var(--work); background: rgba(250,204,21,0.08); }
+.disclaimer { border-left: 3px solid var(--accent); padding: 10px 14px; color: var(--text-dim); font-size: 0.9rem; background: var(--bg-2); }
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--bg-3); border: 1px solid var(--line-2); border-radius: var(--radius);
+  padding: 12px 18px; font-family: var(--mono); font-size: 0.8rem; z-index: 100;
+  opacity: 0; transition: opacity 0.2s; pointer-events: none; max-width: 90vw;
+}
+.toast.show { opacity: 1; }
+.toast.err { border-color: #ef4444; color: #fca5a5; }
+.hidden { display: none !important; }
+.scanline { position: fixed; inset: 0; pointer-events: none; opacity: 0.015;
+  background: repeating-linear-gradient(0deg, #fff 0, #fff 1px, transparent 1px, transparent 4px); z-index: 5; }
+
+/* connection indicator */
+.conn { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 0.65rem; color: var(--text-mute); }
+.conn .dot { width: 7px; height: 7px; }
+.conn.live .dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.conn.stale .dot { background: var(--work); }
+.conn.down .dot { background: #ef4444; }
+
+@media (max-width: 720px) {
+  .wrap { padding: 16px; }
+  .grid.cols-2, .grid.cols-3 { grid-template-columns: 1fr; }
+  .row { flex-direction: column; }
+}

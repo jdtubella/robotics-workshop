@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <rect width="800" height="400" fill="#161618"/>
+  <g stroke="#ff4d1c" stroke-width="2" fill="none">
+    <circle cx="400" cy="200" r="60"/><circle cx="400" cy="150" r="22"/>
+    <path d="M340 260c0-33 27-50 60-50s60 17 60 50"/>
+  </g>
+  <text x="400" y="360" text-anchor="middle" fill="#6a6a6e" font-family="ui-monospace,monospace" font-size="18" letter-spacing="5">// USERS &amp; CAPABILITIES</text>
+</svg>

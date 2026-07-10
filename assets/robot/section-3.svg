@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <rect width="800" height="400" fill="#161618"/>
+  <g stroke="#ff4d1c" stroke-width="2" fill="none">
+    <path d="M400 140l55 30v45c0 34-24 52-55 65-31-13-55-31-55-65v-45z"/>
+    <path d="M382 200l14 14 26-30"/>
+  </g>
+  <text x="400" y="360" text-anchor="middle" fill="#6a6a6e" font-family="ui-monospace,monospace" font-size="18" letter-spacing="5">// SAFETY &amp; FAILURE</text>
+</svg>

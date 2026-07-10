@@ -1,0 +1,404 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facilitator — Robotics PRD Workshop</title>
+<link rel="stylesheet" href="/css/theme.css">
+<style>
+  .deck { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  .stage-nav { display:flex; flex-wrap:wrap; gap:6px; }
+  .stage-nav .btn.active { background: var(--accent); border-color: var(--accent); color:#120a06; }
+  .mini { font-size:0.7rem; }
+  .plist .row-item { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
+  .viewonly { opacity:0.5; pointer-events:none; }
+</style>
+
+<div class="topbar">
+  <div class="brand"><span class="slashes">//</span> FACILITATOR</div>
+  <div class="row" style="gap:12px; align-items:center;">
+    <span class="conn" id="conn"><span class="dot"></span></span>
+    <span class="pill" id="controlPill"><span class="dot"></span><span id="controlLbl">CONTROL</span></span>
+    <button class="small" id="takeControl">Take Control</button>
+  </div>
+</div>
+
+<div class="deck col" id="deck">
+  <div id="loading" class="panel">Loading facilitator deck…</div>
+
+  <div id="main" class="hidden col">
+
+    <!-- Stage + timer -->
+    <div class="panel hud">
+      <div class="spread" style="flex-wrap:wrap; gap:12px;">
+        <div>
+          <div class="label">SESSION <span id="codeLbl" class="accent"></span> · STAGE</div>
+          <div class="stage-nav" id="stageNav" style="margin-top:8px;"></div>
+        </div>
+        <div class="col" style="align-items:flex-end; gap:8px;">
+          <div class="timer big" id="timer">--:--</div>
+          <div class="btn-group">
+            <button class="small" data-timer="start">▶ Start</button>
+            <button class="small" data-timer="pause">⏸ Pause</button>
+            <button class="small" data-timer="resume">▶ Resume</button>
+            <button class="small" data-timer="reset">↺ Reset</button>
+            <button class="small" data-timer="add">+30s</button>
+            <button class="small" data-timer="sub">−30s</button>
+            <input type="number" id="customTimer" placeholder="sec" style="width:70px;" class="small">
+            <button class="small" id="setTimer">Set</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="align-items:flex-start;">
+      <!-- LEFT: section controls -->
+      <div class="col grow" style="flex:2;">
+        <div class="panel">
+          <div class="spread">
+            <div><div class="label">SECTION</div><h2 id="secTitle">—</h2></div>
+            <div class="btn-group">
+              <button id="prevSec">◀ Prev</button>
+              <span class="pill" id="secPill"><span id="secNum">0</span>/<span id="secTotal">0</span></span>
+              <button id="nextSec">Next ▶</button>
+            </div>
+          </div>
+          <p class="dim mini" id="secPrompt"></p>
+        </div>
+
+        <!-- Submission + voting flow -->
+        <div class="panel col">
+          <div class="label">FLOW CONTROL</div>
+          <div class="btn-group">
+            <button data-sub="open">Open Submissions</button>
+            <button data-sub="closed">Close</button>
+            <button data-sub="revealed" class="primary">Reveal All</button>
+          </div>
+          <div class="btn-group">
+            <button data-vote="open">Open Voting</button>
+            <button data-vote="closed">Close Voting</button>
+            <button data-vote="revealed" class="primary">Reveal Votes</button>
+          </div>
+          <div class="mini mute" id="flowState"></div>
+        </div>
+
+        <!-- Selection -->
+        <div class="panel col">
+          <div class="label">SELECT A GROUP</div>
+          <div class="btn-group">
+            <button class="primary" id="selRandom">🎲 Random</button>
+            <button id="selNotHeard">Not Yet Heard</button>
+            <button id="selHighest">Highest Voted</button>
+            <button id="selClear" class="ghost">Clear</button>
+          </div>
+          <label class="check mini"><input type="checkbox" id="avoidRepeats" checked> Avoid repeats until all heard</label>
+          <div id="reel" class="reel-card accent center hidden" style="padding:20px 0;"></div>
+          <div class="mini mute" id="selState"></div>
+        </div>
+
+        <!-- Notes -->
+        <div class="panel col">
+          <div class="spread"><div class="label">FACILITATOR NOTES</div>
+            <label class="check mini"><input type="checkbox" id="notesShared"> Show on display</label></div>
+          <textarea id="noteBody" placeholder="Capture a point from the room discussion…"></textarea>
+          <div class="btn-group">
+            <button id="addNote">Add Note</button>
+            <button id="addKey" class="primary">⭐ Mark Key Point</button>
+          </div>
+          <div id="noteList" class="col mini" style="gap:4px;"></div>
+        </div>
+      </div>
+
+      <!-- RIGHT: groups + participants + monitor -->
+      <div class="col grow" style="flex:3;">
+        <div class="panel col">
+          <div class="spread">
+            <div class="label">GROUPS</div>
+            <div class="btn-group">
+              <button id="genGroups" class="primary">Generate</button>
+              <button id="reroll">Reroll</button>
+              <button id="finalize">Finalize</button>
+              <label class="check mini"><input type="checkbox" id="pubNames" checked> Names on display</label>
+            </div>
+          </div>
+          <div id="groupWarnings"></div>
+          <div id="groupGrid" class="grid auto"></div>
+        </div>
+
+        <div class="panel col">
+          <div class="spread"><div class="label">SUBMISSION MONITOR</div><span class="mini mute" id="subCount"></span></div>
+          <div id="subMonitor" class="grid auto"></div>
+        </div>
+
+        <div class="panel col">
+          <div class="spread">
+            <div class="label">PARTICIPANTS (<span id="pCount">0</span>)</div>
+            <input type="text" id="pSearch" placeholder="search…" class="small" style="width:140px;">
+          </div>
+          <div class="mini mute" id="presenterCount"></div>
+          <div id="plist" class="plist"></div>
+        </div>
+
+        <div class="panel col">
+          <div class="label">EXPORT / SYNTHESIS</div>
+          <p class="mini mute">Download markdown to run through Claude afterward — no API charges.</p>
+          <div class="btn-group" id="exportBtns"></div>
+          <a id="briefBtn" class="btn primary" href="#" download>⬇ Download Brief Package (.md)</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Override modal -->
+<div id="modal" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:200; display:flex; align-items:center; justify-content:center;">
+  <div class="panel hud" style="max-width:420px; width:90%;">
+    <div class="spread"><h3 id="modalTitle">Manage</h3><button class="small ghost" onclick="closeModal()">✕</button></div>
+    <div id="modalBody" class="col" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+WS.init();
+let countdown, state = null, hasControl = false, reelBusy = false;
+
+function boot() {
+  if (!WS.session) { el('loading').textContent = 'Missing session code.'; return; }
+  countdown = makeCountdown(el('timer'));
+  el('codeLbl') && (el('codeLbl').textContent = WS.session);
+  WS.startPolling(2500, onState);
+  wire();
+}
+
+function onState(s) {
+  state = s;
+  el('loading').classList.add('hidden');
+  el('main').classList.remove('hidden');
+  countdown.sync(s.session.timer, s.serverNow);
+  el('codeLbl').textContent = s.session.code;
+
+  // control token
+  hasControl = !s.session.controlDeviceId || s.session.controlDeviceId === WS.deviceId;
+  el('controlLbl').textContent = hasControl ? 'IN CONTROL' : 'VIEW ONLY';
+  el('controlPill').className = 'pill ' + (hasControl ? 'st-submitted' : 'st-working');
+  el('main').classList.toggle('viewonly', !hasControl);
+  el('takeControl').classList.toggle('hidden', hasControl);
+
+  renderStageNav(s);
+  renderSection(s);
+  renderGroups(s);
+  renderMonitor(s);
+  renderParticipants(s);
+  renderNotes(s);
+  renderExports(s);
+  el('pubNames').checked = s.session.publicNames;
+  el('notesShared').checked = s.session.notesShared;
+  el('flowState').textContent = `Submissions: ${s.session.submissionStatus.toUpperCase()} · Voting: ${s.session.votingStatus.toUpperCase()}`;
+}
+
+const STAGES = [['welcome','Welcome'],['roster','Roster'],['robot','Robot'],['groups','Groups'],['section','Section'],['discussion','Discuss'],['final','Final']];
+function renderStageNav(s) {
+  const nav = el('stageNav'); clear(nav);
+  for (const [key,label] of STAGES) {
+    nav.appendChild(h('button', { class:'btn small' + (s.session.status===key?' active':''), onclick:() => post(`/session/${WS.session}/status`, {status:key}) }, label));
+  }
+}
+
+function renderSection(s) {
+  el('secTotal').textContent = s.sections.length;
+  el('secNum').textContent = s.session.currentSection || 0;
+  el('secTitle').textContent = s.currentSection ? s.currentSection.title : '(none)';
+  el('secPrompt').textContent = s.currentSection ? s.currentSection.mainPrompt : '';
+}
+
+function renderGroups(s) {
+  const warn = el('groupWarnings'); clear(warn);
+  const grid = el('groupGrid'); clear(grid);
+  const pById = indexBy(s.participants, 'id');
+  for (const g of s.groups) {
+    const mem = g.memberIds.map(id => pById.get(id)).filter(Boolean);
+    grid.appendChild(h('div', { class:`panel group-card st-${g.status}`, style:'padding:12px;' }, [
+      h('div', { class:'spread' }, [
+        h('h3', { text:g.name }),
+        h('span', { class:'mini mute', text:`heard ${g.heardCount}` }),
+      ]),
+      h('div', { class:'col', style:'gap:3px; margin:8px 0;' }, mem.map(p => h('div', { class:'row-item mini', style:'border:0; padding:2px 0;' }, [
+        h('span', { text: p.name }),
+        h('span', { class:'mute', style:'margin-left:auto;', text: roleIcon(p.isPresenter,p.isRecorder) }),
+      ]))),
+      h('button', { class:'small ghost', onclick:() => manageGroup(g) }, 'Manage'),
+    ]));
+  }
+  if (s.groups.length === 0) grid.appendChild(h('p', { class:'mute mini', text:'No groups yet — press Generate once people have registered.' }));
+}
+
+function renderMonitor(s) {
+  const mon = el('subMonitor'); clear(mon);
+  const subByGroup = {};
+  (s.submissions||[]).forEach(x => subByGroup[x.groupId] = x);
+  let submitted = 0;
+  for (const g of s.groups) {
+    const st = g.status;
+    if (st === 'submitted' || st === 'selected') submitted++;
+    mon.appendChild(h('div', { class:`panel group-card st-${st}`, style:'padding:10px;' }, [
+      h('div', { class:'spread' }, [ h('b',{text:g.name}), h('span',{class:`pill st-${st}`},[h('span',{class:'dot'}), st.replace('_',' ')]) ]),
+      subByGroup[g.id] && subByGroup[g.id].summary ? h('div',{class:'mini dim',style:'margin-top:6px;',text:subByGroup[g.id].summary}) : null,
+    ]));
+  }
+  el('subCount').textContent = s.groups.length ? `${submitted}/${s.groups.length} submitted` : '';
+}
+
+function renderParticipants(s) {
+  const q = (el('pSearch').value||'').toLowerCase();
+  const list = el('plist'); clear(list);
+  const gById = indexBy(s.groups, 'id');
+  const shown = s.participants.filter(p => !q || (p.name+' '+(p.company||'')+' '+(p.role||'')).toLowerCase().includes(q));
+  for (const p of shown) {
+    const g = p.groupId ? gById.get(p.groupId) : null;
+    list.appendChild(h('div', { class:'row-item mini' }, [
+      p.presentPref==='yes'?h('span',{title:'will present',text:'🎤'}):p.presentPref==='maybe'?h('span',{title:'maybe present',text:'🤔'}):h('span',{text:'·'}),
+      h('span', { text: p.name }),
+      h('span', { class:'mute', text: p.company||'' }),
+      p.lateArrival ? h('span',{class:'pill st-working mini',text:'LATE'}) : null,
+      h('span', { style:'margin-left:auto;', class:'mute', text: g?g.name:'—' }),
+      h('button', { class:'small ghost', onclick:() => manageParticipant(p) }, '⚙') ,
+    ]));
+  }
+  el('pCount').textContent = s.participants.length;
+  const yes = s.participants.filter(p=>p.presentPref==='yes').length;
+  const maybe = s.participants.filter(p=>p.presentPref==='maybe').length;
+  el('presenterCount').textContent = `Presenters — Yes: ${yes} · Maybe: ${maybe} (need ≥ number of groups)`;
+}
+
+function renderNotes(s) {
+  const list = el('noteList'); clear(list);
+  (s.sharedNotes||[]).forEach(n => list.appendChild(h('div', { class:'dim', text:(n.keyPoint?'⭐ ':'• ')+n.body })));
+}
+
+function renderExports(s) {
+  const box = el('exportBtns'); clear(box);
+  for (const sec of s.sections) {
+    box.appendChild(h('a', { class:'btn small', href:`/api/session/${WS.session}/export/section/${sec.section_order}`, download:'' }, `§${sec.section_order} .md`));
+  }
+  el('briefBtn').href = `/api/session/${WS.session}/export/brief`;
+}
+
+// ---- actions ---------------------------------------------------------------
+async function post(path, body) {
+  if (!hasControl && !path.endsWith('/control/take')) { toast('View-only — take control first', true); return; }
+  try { const r = await WS.post(path, body); if (r && r.state) onState(r.state); return r; }
+  catch (e) { toast(e.message, true); }
+}
+
+function wire() {
+  el('takeControl').addEventListener('click', () => WS.post(`/session/${WS.session}/control/take`, { deviceId: WS.deviceId }).then(WS.refreshNow).catch(()=>{}));
+  el('prevSec').addEventListener('click', () => post(`/session/${WS.session}/section`, { action:'prev' }));
+  el('nextSec').addEventListener('click', () => post(`/session/${WS.session}/section`, { action:'next' }));
+  el('pubNames').addEventListener('change', (e) => post(`/session/${WS.session}/public-names`, { value: e.target.checked }));
+  el('notesShared').addEventListener('change', (e) => post(`/session/${WS.session}/notes-shared`, { value: e.target.checked }));
+
+  document.querySelectorAll('[data-timer]').forEach(b => b.addEventListener('click', () => {
+    const a = b.dataset.timer;
+    post(`/session/${WS.session}/timer`, { action:a });
+  }));
+  el('setTimer').addEventListener('click', () => {
+    const v = Number(el('customTimer').value);
+    if (v>0) post(`/session/${WS.session}/timer`, { action:'start', durationSeconds:v });
+  });
+
+  document.querySelectorAll('[data-sub]').forEach(b => b.addEventListener('click', () => post(`/session/${WS.session}/submissions`, { status:b.dataset.sub })));
+  document.querySelectorAll('[data-vote]').forEach(b => b.addEventListener('click', () => post(`/session/${WS.session}/voting`, { status:b.dataset.vote })));
+
+  el('genGroups').addEventListener('click', async () => { const r = await post(`/session/${WS.session}/groups/generate`); showWarnings(r); });
+  el('reroll').addEventListener('click', async () => { const r = await post(`/session/${WS.session}/groups/reroll`); showWarnings(r); });
+  el('finalize').addEventListener('click', () => { post(`/session/${WS.session}/groups/finalize`); toast('Groups finalized'); });
+
+  el('selRandom').addEventListener('click', () => runSelect('random'));
+  el('selNotHeard').addEventListener('click', () => runSelect('not_heard'));
+  el('selHighest').addEventListener('click', () => runSelect('highest'));
+  el('selClear').addEventListener('click', () => post(`/session/${WS.session}/select/clear`));
+
+  el('addNote').addEventListener('click', () => addNote(false));
+  el('addKey').addEventListener('click', () => addNote(true));
+  el('pSearch').addEventListener('input', () => state && renderParticipants(state));
+}
+
+function showWarnings(r) {
+  const warn = el('groupWarnings'); clear(warn);
+  if (r && r.warnings && r.warnings.length) {
+    warn.appendChild(h('div', { class:'banner warn mini' }, [ h('b',{text:'Balancing notes: '}), h('ul',{style:'margin:6px 0 0;'}, r.warnings.map(w=>h('li',{text:w}))) ]));
+  }
+}
+
+async function runSelect(mode) {
+  if (!hasControl) return toast('Take control first', true);
+  if (reelBusy) return;
+  reelBusy = true;
+  try {
+    const r = await WS.post(`/session/${WS.session}/select`, { mode, avoidRepeats: el('avoidRepeats').checked });
+    if (r.reel && r.reel.length > 1) await playReel(r.reel, r.groupId);
+    if (r.state) onState(r.state);
+    const g = state.groups.find(x=>x.id===r.groupId);
+    el('selState').textContent = g ? `Selected: ${g.name}` : '';
+  } catch (e) { toast(e.message, true); }
+  reelBusy = false;
+}
+
+function playReel(reel, winnerId) {
+  return new Promise((resolve) => {
+    const box = el('reel'); box.classList.remove('hidden');
+    const names = new Map((state.groups||[]).map(g=>[g.id,g.name]));
+    let i = 0; let delay = 60;
+    function step() {
+      box.textContent = names.get(reel[i]) || '…';
+      i++;
+      if (i >= reel.length) { box.textContent = names.get(winnerId) || box.textContent; box.classList.add('selected-pop'); setTimeout(()=>{box.classList.remove('selected-pop');}, 400); setTimeout(resolve, 700); return; }
+      delay = i > reel.length - 5 ? delay + 90 : 60; // slow down near the end
+      setTimeout(step, delay);
+    }
+    step();
+  });
+}
+
+async function addNote(key) {
+  const body = el('noteBody').value.trim();
+  if (!body) return;
+  await post(`/session/${WS.session}/note`, { body, keyPoint:key, groupId: state.session.selectedGroupId || null });
+  el('noteBody').value = '';
+  toast(key?'Key point marked':'Note added');
+}
+
+// ---- override modals -------------------------------------------------------
+function openModal(title, nodes) {
+  el('modalTitle').textContent = title;
+  const b = el('modalBody'); clear(b); nodes.forEach(n=>b.appendChild(n));
+  el('modal').classList.remove('hidden');
+}
+function closeModal() { el('modal').classList.add('hidden'); }
+window.closeModal = closeModal;
+
+function manageParticipant(p) {
+  const gopts = state.groups.map(g => h('option', { value:g.id, text:g.name, selected: g.id===p.groupId }));
+  const sel = h('select', {}, gopts);
+  openModal(`Manage: ${p.name}`, [
+    h('label', { class:'field' }, [ h('span',{class:'label',text:'MOVE TO GROUP'}), sel ]),
+    h('button', { class:'primary', onclick:() => { post(`/session/${WS.session}/move`, { participantId:p.id, groupId:sel.value }); closeModal(); } }, 'Move'),
+    h('label', { class:'check mini' }, [ h('input',{type:'checkbox', checked:p.locked, onchange:(e)=>post(`/session/${WS.session}/participant/${p.id}/lock`,{value:e.target.checked})}), ' Lock to group (kept on reroll)' ]),
+  ]);
+}
+
+function manageGroup(g) {
+  const members = g.memberIds.map(id => state.participants.find(p=>p.id===id)).filter(Boolean);
+  const presSel = h('select', {}, members.map(m=>h('option',{value:m.id,text:m.name,selected:m.id===g.presenterId})));
+  const recSel = h('select', {}, members.map(m=>h('option',{value:m.id,text:m.name,selected:m.id===g.recorderId})));
+  const nameInput = h('input', { type:'text', value:g.name });
+  openModal(`Manage: ${g.name}`, [
+    h('label',{class:'field'},[h('span',{class:'label',text:'RENAME'}), nameInput]),
+    h('button',{class:'small', onclick:()=>{ post(`/session/${WS.session}/group/${g.id}/rename`,{name:nameInput.value}); closeModal(); }},'Save name'),
+    h('label',{class:'field',style:'margin-top:12px;'},[h('span',{class:'label',text:'PRESENTER 🎤'}), presSel]),
+    h('button',{class:'small', onclick:()=>post(`/session/${WS.session}/group/${g.id}/presenter`,{participantId:presSel.value})},'Set presenter'),
+    h('label',{class:'field',style:'margin-top:12px;'},[h('span',{class:'label',text:'RECORDER ✏️'}), recSel]),
+    h('button',{class:'small', onclick:()=>post(`/session/${WS.session}/group/${g.id}/recorder`,{participantId:recSel.value})},'Set recorder'),
+  ]);
+}
+
+boot();
+</script>

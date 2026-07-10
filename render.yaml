@@ -1,0 +1,25 @@
+# Render Blueprint — deploys the workshop as an always-on web service with a
+# persistent disk so session data survives restarts. In the Render dashboard:
+# "New +" → "Blueprint" → connect this repo. Everything below is applied for you.
+services:
+  - type: web
+    name: robotics-workshop
+    runtime: node
+    plan: starter            # always-on ($7/mo). Free tier works too but idles + has no disk.
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DB_PATH
+        value: /data/workshop.db
+      # After the first deploy, set BASE_URL to your live URL for a rock-solid
+      # QR/share link, e.g. https://robotics-workshop.onrender.com
+      # - key: BASE_URL
+      #   value: https://robotics-workshop.onrender.com
+    disk:
+      name: workshop-data
+      mountPath: /data
+      sizeGB: 1

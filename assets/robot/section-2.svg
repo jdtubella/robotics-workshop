@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <rect width="800" height="400" fill="#161618"/>
+  <g stroke="#ff4d1c" stroke-width="2" fill="none">
+    <rect x="300" y="150" width="60" height="60"/><rect x="440" y="150" width="60" height="60"/>
+    <path d="M360 180h80M470 210v40M330 210v40M330 250h140" stroke-dasharray="6 6"/>
+  </g>
+  <text x="400" y="360" text-anchor="middle" fill="#6a6a6e" font-family="ui-monospace,monospace" font-size="18" letter-spacing="5">// WORKFLOW &amp; DEPLOYMENT</text>
+</svg>

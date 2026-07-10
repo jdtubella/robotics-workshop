@@ -1,0 +1,96 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Construction Robotics Workshop</title>
+<link rel="stylesheet" href="/css/theme.css">
+
+<div class="scanline"></div>
+<div class="topbar">
+  <div class="brand"><span class="slashes">//</span> ROBOTICS PRD WORKSHOP</div>
+  <span class="label">CONTROL DECK</span>
+</div>
+
+<div class="wrap col" style="max-width:760px; padding-top:48px;">
+  <div>
+    <div class="label">STAKEHOLDER REQUIREMENTS EXERCISE</div>
+    <h1 class="display" style="margin-top:10px;">Define<br>The Robot</h1>
+    <p class="dim" style="max-width:52ch; margin-top:14px;">
+      A one-hour, high-energy workshop that crowdsources preliminary requirements for a fictional
+      construction robot from the people in the room.
+    </p>
+  </div>
+
+  <div class="row" style="align-items:stretch;">
+    <div class="panel hud grow">
+      <div class="panel-title"><h2>New Session</h2></div>
+      <p class="dim" style="font-size:0.9rem;">Spin up a fresh workshop. You'll get a room-display link, a facilitator deck, and a join QR code.</p>
+      <button class="primary" id="createBtn" style="margin-top:8px;">▶ Create Session</button>
+    </div>
+
+    <div class="panel hud grow">
+      <div class="panel-title"><h2>Resume</h2></div>
+      <label class="field">
+        <span class="label">SESSION CODE</span>
+        <input type="text" id="resumeCode" placeholder="e.g. K7QM2" maxlength="8" style="text-transform:uppercase;">
+      </label>
+      <button id="resumeBtn">↻ Reconnect</button>
+    </div>
+  </div>
+
+  <div class="panel" id="linksPanel" style="display:none;">
+    <div class="panel-title"><h2>Session Ready</h2><span class="code-big" id="codeOut"></span></div>
+    <div class="grid cols-3" id="links"></div>
+    <hr class="hr">
+    <p class="dim" style="font-size:0.85rem;">
+      Open the <span class="accent">Room Display</span> on the projector, keep the
+      <span class="accent">Facilitator</span> deck on your laptop/phone, and share the
+      <span class="accent">Join</span> link (or QR on the display) with participants.
+    </p>
+  </div>
+
+  <p class="mute" style="font-size:0.8rem;">
+    Robot concept & images are pending — edit <span class="mono">config/workshop.json</span> and drop files in
+    <span class="mono">assets/robot/</span> before the live session.
+  </p>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+WS.init();
+
+el('createBtn').addEventListener('click', async () => {
+  el('createBtn').disabled = true;
+  try {
+    const { code } = await WS.post('/sessions');
+    showLinks(code);
+  } catch (e) { toast(e.message, true); el('createBtn').disabled = false; }
+});
+
+el('resumeBtn').addEventListener('click', async () => {
+  const code = (el('resumeCode').value || '').trim().toUpperCase();
+  if (!code) return toast('Enter a code', true);
+  try {
+    await WS.get(`/session/${code}/state`);
+    showLinks(code);
+  } catch (e) { toast('Session not found', true); }
+});
+
+function showLinks(code) {
+  el('codeOut').textContent = code;
+  const base = location.origin;
+  const links = [
+    ['Room Display', `/display?session=${code}`, 'Projector / shared screen'],
+    ['Facilitator', `/facilitator?session=${code}`, 'Your control deck'],
+    ['Join', `/join?session=${code}`, 'Participant registration'],
+  ];
+  const wrap = el('links'); clear(wrap);
+  for (const [name, path, desc] of links) {
+    wrap.appendChild(h('a', { class: 'panel', href: path, target: '_blank', style: 'text-decoration:none;' }, [
+      h('div', { class: 'label', text: name }),
+      h('div', { class: 'accent', style: 'font-weight:800; margin:6px 0; font-size:1.1rem;', text: '↗ Open' }),
+      h('div', { class: 'mute', style: 'font-size:0.8rem;', text: desc }),
+    ]));
+  }
+  el('linksPanel').style.display = 'block';
+  el('linksPanel').scrollIntoView({ behavior: 'smooth' });
+}
+</script>

@@ -1,0 +1,287 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Room Display — Robotics PRD Workshop</title>
+<link rel="stylesheet" href="/css/theme.css">
+<style>
+  body { overflow-x: hidden; }
+  .stage { min-height: 100vh; padding: 40px 56px; display: flex; flex-direction: column; }
+  .stage .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+  .robot-img { width: min(44vw, 620px); max-width: 100%; max-height: 60vh; object-fit: contain;
+    border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); }
+  .big-list li { margin-bottom:8px; }
+  .fade { animation: fade 0.5s ease; }
+  @keyframes fade { from { opacity:0; transform:translateY(6px);} to {opacity:1; transform:none;} }
+  .reel-card { font-size: clamp(2rem,6vw,5rem); font-weight:800; text-transform:uppercase; letter-spacing:-0.02em; }
+  .selected-pop { animation: pop 0.4s ease; }
+  @keyframes pop { 0%{transform:scale(0.7);opacity:0;} 100%{transform:scale(1);opacity:1;} }
+  .join-name { animation: fade 0.5s ease; }
+</style>
+
+<div class="scanline"></div>
+<div id="stage" class="stage"><div class="panel">Connecting to session…</div></div>
+
+<script src="/js/common.js"></script>
+<script>
+WS.init();
+let countdown = null, timerEl = null, qrImg = null, reelActive = false, lastSelected = null, lastStatus = null, lastSig = null;
+
+function boot() {
+  if (!WS.session) { el('stage').innerHTML = '<div class="panel">Missing session code.</div>'; return; }
+  WS.startPolling(2500, render);
+}
+
+// Persistent QR <img>: created once and reused so the room display never
+// refetches (and flashes) it on every poll.
+function getQr(code) {
+  if (!qrImg) qrImg = h('img', { src: `/api/session/${code}/qr`, alt: 'QR' });
+  return qrImg;
+}
+
+// The parts of state that actually affect what's drawn (everything EXCEPT the
+// ticking timer, which updates itself). Used to skip needless re-renders.
+function viewSignature(s) {
+  return JSON.stringify({
+    st: s.session.status, sec: s.session.currentSection, sub: s.session.submissionStatus,
+    vote: s.session.votingStatus, sel: s.session.selectedGroupId, pub: s.session.publicNames,
+    notesShared: s.session.notesShared, share: s.shareBase,
+    parts: s.participants.map((p) => [p.id, p.name, p.company, p.groupId, p.isPresenter, p.isRecorder]),
+    groups: s.groups.map((g) => [g.id, g.name, g.status, g.heardCount, g.memberIds.join(',')]),
+    subs: (s.submissions || []).map((x) => [x.id, x.groupId, x.submitted, x.summary, x.votes]),
+    notes: (s.sharedNotes || []).map((n) => [n.id, n.body, n.keyPoint]),
+    robot: s.config && s.config.robot ? s.config.robot.name : null,
+  });
+}
+
+function head(state, right) {
+  return h('div', { class: 'head' }, [
+    h('div', { class: 'brand' }, [ h('span', { class:'slashes', text:'//' }), ' ', (state.config && state.config.workshopTitle) || 'WORKSHOP' ]),
+    right || h('span', { class: 'label', text: 'SESSION ' + state.session.code }),
+  ]);
+}
+
+function ensureTimer() {
+  // Create the timer element + its countdown once, then reuse it across renders
+  // so we don't leak intervals or reset the clock.
+  if (!timerEl) { timerEl = h('div', { class: 'timer huge', text: '--:--' }); countdown = makeCountdown(timerEl, { lowAt: 30000 }); }
+  return timerEl;
+}
+
+function render(state) {
+  const status = state.session.status;
+  const stage = el('stage');
+
+  if (!state.session.selectedGroupId) lastSelected = null;
+
+  // Only rebuild the DOM when something visible changed. The timer keeps ticking
+  // via its own interval, so idle polls no longer cause the screen to blink.
+  const sig = viewSignature(state);
+  if (sig === lastSig) { if (countdown) countdown.sync(state.session.timer, state.serverNow); return; }
+  lastSig = sig;
+
+  clear(stage);
+  let body;
+  switch (status) {
+    case 'welcome': body = welcome(state); break;
+    case 'roster': body = roster(state); break;
+    case 'robot': body = robot(state); break;
+    case 'groups': body = groups(state); break;
+    case 'section': body = section(state); break;
+    case 'discussion': body = discussion(state); break;
+    case 'final': body = final(state); break;
+    default: body = welcome(state);
+  }
+  stage.appendChild(body);
+  stage.firstChild && stage.firstChild.classList && stage.firstChild.classList.add('fade');
+
+  // keep timer synced if present
+  if (countdown) countdown.sync(state.session.timer, state.serverNow);
+  lastStatus = status;
+}
+
+// ---- States ----------------------------------------------------------------
+
+function welcome(state) {
+  const r = state.config && state.config.robot;
+  const col = h('div', { class: 'col grow' }, [
+    head(state),
+    h('div', { class: 'row grow', style: 'align-items:center; gap:56px;' }, [
+      h('div', { class: 'col grow' }, [
+        h('div', { class: 'label', text: 'STAKEHOLDER REQUIREMENTS EXERCISE' }),
+        h('h1', { class: 'display', text: 'Define The Robot' }),
+        h('p', { class: 'dim', style:'max-width:44ch; font-size:1.1rem;', text: (state.config && state.config.purpose) || '' }),
+        h('div', { class: 'disclaimer', style:'margin-top:8px;', text: (state.config && state.config.disclaimer) || '' }),
+        h('div', { class:'row', style:'margin-top:16px; align-items:center; gap:28px;' }, [
+          h('div', {}, [ h('div',{class:'label',text:'SCAN TO JOIN'}), h('div', { class: 'qr', style:'margin-top:8px;' }, [ getQr(state.session.code) ]) ]),
+          h('div', {}, [
+            h('div',{class:'label',text:'OR VISIT'}),
+            h('div',{class:'mono', style:'margin-top:8px; font-size:1rem;', text: (state.shareBase || location.origin) + '/join'}),
+            h('div',{class:'code-big', style:'margin-top:6px;', text: state.session.code}),
+            h('div',{class:'label', style:'margin-top:14px;', text:'REGISTERED'}),
+            h('div',{class:'display', style:'font-size:3rem;', text: String(state.participants.length)}),
+          ]),
+        ]),
+      ]),
+      h('div', {}, [ h('img', { class:'robot-img', src: (r && r.images && r.images[0]) || '/assets/robot/robot-placeholder.svg' }) ]),
+    ]),
+  ]);
+  return col;
+}
+
+function roster(state) {
+  const showNames = state.session.publicNames;
+  const chips = h('div', { class: 'wrap-cols grow', style:'align-content:flex-start; overflow:auto;' });
+  const people = state.participants.slice().reverse();
+  for (const p of people) {
+    chips.appendChild(h('span', { class:'chip join-name' }, [
+      h('span', { text: showNames ? p.name : 'Participant' }),
+      showNames && p.company ? h('span', { class:'mute', style:'font-size:0.8rem;', text: p.company }) : null,
+    ]));
+  }
+  return h('div', { class:'col grow' }, [
+    head(state, h('div', { class:'display', style:'font-size:2.4rem;', text: state.participants.length + ' IN' })),
+    h('div', { class:'label', text:'PARTICIPANTS' }),
+    h('h1', { text: 'Who\'s In The Room' }),
+    chips,
+  ]);
+}
+
+function robot(state) {
+  const r = (state.config && state.config.robot) || {};
+  const list = (title, arr) => arr && arr.length ? h('div', {}, [
+    h('div', { class:'label', text:title }),
+    h('ul', { class:'big-list dim', style:'font-size:1.05rem; margin-top:6px;' }, arr.map((x) => h('li', { text:x }))),
+  ]) : null;
+  return h('div', { class:'col grow' }, [
+    head(state),
+    h('div', { class:'row grow', style:'gap:48px; align-items:flex-start;' }, [
+      h('div', {}, [ h('img', { class:'robot-img', src: (r.images && r.images[0]) || '/assets/robot/robot-placeholder.svg' }) ]),
+      h('div', { class:'col grow' }, [
+        h('div', { class:'label', text:'THE FICTIONAL ROBOT' }),
+        h('h1', { class:'display', style:'font-size:3.2rem;', text: r.name || 'ROBOT — TBD' }),
+        r.tagline ? h('p', { class:'accent', style:'font-size:1.2rem;', text: r.tagline }) : null,
+        r.task ? h('p', { class:'dim', style:'font-size:1.05rem;' }, [ h('b',{text:'Task: '}), r.task ]) : null,
+        r.environment ? h('p', { class:'dim', style:'font-size:1.05rem;' }, [ h('b',{text:'Environment: '}), r.environment ]) : null,
+        list('KNOWN ASSUMPTIONS', r.assumptions),
+        list('KNOWN CONSTRAINTS', r.constraints),
+        list('OPEN QUESTIONS', r.unresolvedQuestions),
+      ]),
+    ]),
+  ]);
+}
+
+function groups(state) {
+  const pById = indexBy(state.participants, 'id');
+  const cards = h('div', { class:'grid auto grow', style:'align-content:flex-start;' });
+  for (const g of state.groups) {
+    const mem = g.memberIds.map((id) => {
+      const p = pById.get(id); if (!p) return null;
+      const ico = roleIcon(p.isPresenter, p.isRecorder);
+      return h('div', { class:'chip', style:'width:100%;' }, [
+        h('span', { text: state.session.publicNames ? p.name : 'Member' }),
+        h('span', { class:'mute', style:'margin-left:auto; font-size:0.75rem;', text: (state.session.publicNames ? (p.company||'') : '') }),
+        ico ? h('span', { class:'role-ico', text: ico }) : null,
+      ]);
+    }).filter(Boolean);
+    cards.appendChild(h('div', { class:'panel hud group-card' }, [
+      h('h3', { text: g.name }),
+      h('div', { class:'col', style:'gap:6px; margin-top:10px;' }, mem),
+    ]));
+  }
+  return h('div', { class:'col grow' }, [
+    head(state, ensureTimer()),
+    h('div', { class:'label', text:'FIND YOUR GROUP' }),
+    h('h1', { text:'Group Assignments' }),
+    h('p', { class:'mute', text:'🎤 presenter   ✏️ recorder' }),
+    cards,
+  ]);
+}
+
+function section(state) {
+  const sec = state.currentSection || {};
+  const statusColor = { not_started:'idle', working:'working', submitted:'submitted', selected:'selected' };
+  const grid = h('div', { class:'grid auto', style:'margin-top:16px;' });
+  for (const g of state.groups) {
+    grid.appendChild(h('div', { class:`panel group-card st-${g.status}` }, [
+      h('div', { class:'spread' }, [
+        h('h3', { text: g.name }),
+        h('span', { class:`pill st-${g.status}` }, [ h('span',{class:'dot'}), g.status.replace('_',' ') ]),
+      ]),
+    ]));
+  }
+  const revealed = state.session.submissionStatus === 'revealed';
+  let feed = null;
+  if (revealed) {
+    const gById = indexBy(state.groups, 'id');
+    feed = h('div', { class:'col', style:'margin-top:16px;' }, [
+      h('div', { class:'label', text:'LIVE IDEA FEED' }),
+      h('div', { class:'grid auto' }, state.submissions.filter(s=>s.submitted).map((s) => h('div', { class:'panel' }, [
+        h('div', { class:'spread' }, [
+          h('div', { class:'label', text: (gById.get(s.groupId)||{}).name || 'Group' }),
+          s.votes != null ? h('span',{class:'pill st-selected'},[h('span',{class:'dot'}), s.votes+' ▲']) : null,
+        ]),
+        h('div', { class:'dim', style:'margin-top:6px; font-size:1rem;', text: s.summary || '(no headline)' }),
+      ]))),
+    ]);
+  }
+  return h('div', { class:'col grow' }, [
+    head(state, ensureTimer()),
+    h('div', { class:'spread' }, [
+      h('div', {}, [ h('div', { class:'label', text:`SECTION ${sec.order||''}` }), h('h1', { text: sec.title || '—' }) ]),
+      sec.image ? h('img', { src: sec.image, style:'height:80px;' }) : null,
+    ]),
+    h('p', { class:'accent', style:'font-size:1.3rem; max-width:60ch;', text: sec.mainPrompt || '' }),
+    h('p', { class:'dim', text: sec.objective || '' }),
+    grid,
+    feed,
+  ]);
+}
+
+function discussion(state) {
+  const g = state.groups.find((x) => x.id === state.session.selectedGroupId);
+  const sub = (state.submissions || []).find((s) => s.groupId === (g && g.id));
+  const sec = state.currentSection || {};
+  const pById = indexBy(state.participants, 'id');
+  const fields = sub && sub.response ? (sec.fields||[]).filter(f => sub.response[f.key]) : [];
+  return h('div', { class:'col grow selected-pop' }, [
+    head(state),
+    h('div', { class:'label', text:`NOW PRESENTING — SECTION ${sec.order||''}` }),
+    h('h1', { class:'display', style:'font-size:4rem;', text: g ? g.name : 'GROUP' }),
+    g ? h('div', { class:'wrap-cols' }, g.memberIds.map(id => { const p=pById.get(id); return p? h('span',{class:'chip',text: state.session.publicNames? p.name : 'Member'}):null; }).filter(Boolean)) : null,
+    sub && sub.summary ? h('div', { class:'panel hud', style:'margin-top:16px;' }, [
+      h('div', { class:'label', text:'COLLECTIVE ANSWER' }),
+      h('p', { style:'font-size:1.4rem; margin-top:8px;', text: sub.summary }),
+    ]) : h('div', { class:'banner', style:'margin-top:16px;', text:'Group is presenting…' }),
+    fields.length ? h('div', { class:'grid cols-2', style:'margin-top:14px;' }, fields.map(f => h('div',{class:'panel'},[
+      h('div',{class:'label',text:f.label}), h('div',{class:'dim',style:'margin-top:6px;',text: sub.response[f.key]}),
+    ]))) : null,
+    state.session.notesShared && state.sharedNotes.length ? h('div', { class:'panel', style:'margin-top:14px;' }, [
+      h('div',{class:'label',text:'FACILITATOR NOTES'}),
+      h('ul',{class:'dim',style:'margin-top:6px;'}, state.sharedNotes.map(n => h('li',{text:(n.keyPoint?'⭐ ':'')+n.body}))),
+    ]) : null,
+  ]);
+}
+
+function final(state) {
+  const gById = indexBy(state.groups, 'id');
+  return h('div', { class:'col grow' }, [
+    head(state),
+    h('div', { class:'label', text:'WORKSHOP COMPLETE' }),
+    h('h1', { class:'display', text:'Thank You' }),
+    h('p', { class:'dim', style:'max-width:60ch; font-size:1.1rem;', text:'You\'ve helped surface the questions, assumptions, and candidate requirements that a real construction-robot PRD would need to resolve.' }),
+    h('div', { class:'disclaimer', text: (state.config && state.config.disclaimer) || '' }),
+    h('div', { class:'row', style:'margin-top:24px; gap:40px; align-items:center;' }, [
+      h('div', {}, [ h('div',{class:'label',text:'GET THE SUMMARY'}), h('div', { class:'qr', style:'margin-top:8px;' }, [ getQr(state.session.code) ]) ]),
+      h('div', {}, [
+        h('div',{class:'label',text:'NEXT STEPS'}),
+        h('ul',{class:'dim',style:'font-size:1.05rem; margin-top:8px;'}, [
+          h('li',{text:'The facilitator will compile a Preliminary Robotic Product Requirements Brief.'}),
+          h('li',{text:'Consented participants receive the summary by email.'}),
+          h('li',{text:'This is stakeholder intelligence — not an approved PRD.'}),
+        ]),
+      ]),
+    ]),
+  ]);
+}
+
+boot();
+</script>

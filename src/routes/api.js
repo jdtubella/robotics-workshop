@@ -1,0 +1,741 @@
+'use strict';
+
+const os = require('os');
+const express = require('express');
+const QRCode = require('qrcode');
+const { db, logActivity } = require('../db');
+const { loadConfig } = require('../config');
+const { sessionCode, uid } = require('../lib/ids');
+const { assignGroups } = require('../lib/grouping');
+const { pickGroup } = require('../lib/selection');
+const { canVote } = require('../lib/voting');
+const { renderSection, buildBriefPackage } = require('../lib/export');
+
+const router = express.Router();
+
+// ---------- helpers ----------------------------------------------------------
+
+function getSession(code) {
+  return db.prepare('SELECT * FROM sessions WHERE code = ?').get(code);
+}
+
+function touch(code) {
+  db.prepare('UPDATE sessions SET updated_at = ? WHERE code = ?').run(Date.now(), code);
+}
+
+// First non-internal IPv4 address (prefer Wi-Fi en0), so phones on the same
+// network can reach the Mac — "localhost" in a QR points at the phone itself.
+function lanIp() {
+  const ifaces = os.networkInterfaces();
+  const preferred = ['en0', 'en1'];
+  const names = [...preferred, ...Object.keys(ifaces).filter((n) => !preferred.includes(n))];
+  for (const name of names) {
+    for (const i of ifaces[name] || []) {
+      if (i.family === 'IPv4' && !i.internal) return i.address;
+    }
+  }
+  return null;
+}
+
+// Base URL that is reachable from other devices. When the request came in over
+// localhost we swap in the LAN IP; a real deploy keeps its host header.
+function shareBaseUrl(req) {
+  if (process.env.BASE_URL) return process.env.BASE_URL.replace(/\/$/, '');
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+  const [hostname, port] = host.split(':');
+  if (['localhost', '127.0.0.1', '::1', ''].includes(hostname)) {
+    const ip = lanIp();
+    if (ip) return `${proto}://${ip}${port ? ':' + port : ''}`;
+  }
+  return `${proto}://${host}`;
+}
+
+function votesPerParticipant() {
+  try { return loadConfig().defaults.votesPerParticipant || 2; } catch (_) { return 2; }
+}
+
+function timerRemaining(s) {
+  if (s.timer_paused_remaining != null) return { running: false, remainingMs: Math.max(0, s.timer_paused_remaining) };
+  if (s.timer_ends_at != null) return { running: true, remainingMs: Math.max(0, s.timer_ends_at - Date.now()) };
+  return { running: false, remainingMs: null };
+}
+
+function groupMembers(code) {
+  const rows = db.prepare('SELECT * FROM participants WHERE session_code = ? ORDER BY created_at').all(code);
+  const map = new Map();
+  for (const p of rows) {
+    if (!p.group_id) continue;
+    if (!map.has(p.group_id)) map.set(p.group_id, []);
+    map.get(p.group_id).push(p);
+  }
+  return { rows, map };
+}
+
+// Full state snapshot consumed by all four views (polled).
+function buildState(code, { participantId } = {}) {
+  const s = getSession(code);
+  if (!s) return null;
+  const cfg = safeConfig();
+  const { rows: participants, map: memberMap } = groupMembers(code);
+
+  const groups = db.prepare('SELECT * FROM groups WHERE session_code = ? ORDER BY sort_order').all(code);
+  const sections = db
+    .prepare('SELECT section_order, key, title FROM sections WHERE session_code = ? ORDER BY section_order')
+    .all(code);
+  const currentSectionRow = s.current_section
+    ? db.prepare('SELECT * FROM sections WHERE session_code = ? AND section_order = ?').get(code, s.current_section)
+    : null;
+  const currentSection = currentSectionRow
+    ? {
+        order: currentSectionRow.section_order,
+        key: currentSectionRow.key,
+        title: currentSectionRow.title,
+        objective: currentSectionRow.objective,
+        mainPrompt: currentSectionRow.main_prompt,
+        image: currentSectionRow.image,
+        defaultTimer: currentSectionRow.default_timer,
+        fields: JSON.parse(currentSectionRow.fields_json || '[]'),
+      }
+    : null;
+
+  const me = participantId ? participants.find((p) => p.id === participantId) : null;
+  const myGroupId = me ? me.group_id : null;
+
+  // Submissions for the current section, visibility-filtered.
+  let submissions = [];
+  let myVotesUsed = 0;
+  if (s.current_section) {
+    const subs = db
+      .prepare('SELECT * FROM submissions WHERE session_code = ? AND section_order = ?')
+      .all(code, s.current_section);
+    const revealed = s.submission_status === 'revealed';
+    const votingRevealed = s.voting_status === 'revealed';
+    const voteCounts = new Map(
+      db
+        .prepare(
+          `SELECT submission_id, COUNT(*) n FROM votes WHERE session_code = ? AND section_order = ? GROUP BY submission_id`
+        )
+        .all(code, s.current_section)
+        .map((r) => [r.submission_id, r.n])
+    );
+    if (participantId) {
+      myVotesUsed = db
+        .prepare('SELECT COUNT(*) n FROM votes WHERE session_code = ? AND section_order = ? AND voter_id = ?')
+        .get(code, s.current_section, participantId).n;
+    }
+    submissions = subs.map((sub) => {
+      const mine = myGroupId && sub.group_id === myGroupId;
+      const showContent = revealed || mine;
+      return {
+        id: sub.id,
+        groupId: sub.group_id,
+        submitted: !!sub.submitted,
+        mine: !!mine,
+        summary: showContent ? sub.summary_response : null,
+        response: showContent ? safeJson(sub.response_json) : null,
+        votes: votingRevealed ? voteCounts.get(sub.id) || 0 : null,
+      };
+    });
+    // Randomized-but-stable order for reveal: derived from the submission id so it
+    // is shuffled relative to group order yet does NOT reshuffle on every poll
+    // (which would make the room display jump around).
+    if (revealed) {
+      const hash = (str) => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; return h; };
+      submissions.sort((a, b) => hash(a.id) - hash(b.id));
+    }
+  }
+
+  const notesShared = !!s.notes_shared;
+  const sharedNotes = notesShared && s.current_section
+    ? db
+        .prepare('SELECT * FROM notes WHERE session_code = ? AND section_order = ? ORDER BY created_at')
+        .all(code, s.current_section)
+    : [];
+
+  return {
+    serverNow: Date.now(),
+    config: cfg
+      ? {
+          workshopTitle: cfg.workshopTitle,
+          purpose: cfg.purpose,
+          disclaimer: cfg.disclaimer,
+          robot: cfg.robot,
+          roleCategories: cfg.roleCategories,
+          defaults: cfg.defaults,
+        }
+      : null,
+    session: {
+      code: s.code,
+      workshopTitle: s.workshop_title,
+      status: s.status,
+      currentSection: s.current_section,
+      publicNames: !!s.public_names,
+      submissionStatus: s.submission_status,
+      votingStatus: s.voting_status,
+      groupsFinalized: !!s.groups_finalized,
+      selectedGroupId: s.selected_group_id,
+      notesShared,
+      controlDeviceId: s.control_device_id,
+      timer: timerRemaining(s),
+      timerDuration: s.timer_duration,
+    },
+    sections,
+    currentSection,
+    participants: participants.map((p) => ({
+      id: p.id,
+      name: p.name,
+      company: p.company,
+      role: p.role,
+      presentPref: p.present_pref,
+      groupId: p.group_id,
+      isPresenter: !!p.is_presenter,
+      isRecorder: !!p.is_recorder,
+      locked: !!p.locked,
+      lateArrival: !!p.late_arrival,
+    })),
+    groups: groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      presenterId: g.presenter_id,
+      recorderId: g.recorder_id,
+      heardCount: g.heard_count,
+      status: g.status,
+      sortOrder: g.sort_order,
+      memberIds: (memberMap.get(g.id) || []).map((m) => m.id),
+    })),
+    submissions,
+    sharedNotes: sharedNotes.map((n) => ({ id: n.id, groupId: n.group_id, body: n.body, keyPoint: !!n.key_point })),
+    me: me
+      ? {
+          id: me.id,
+          name: me.name,
+          groupId: me.group_id,
+          isRecorder: !!me.is_recorder,
+          isPresenter: !!me.is_presenter,
+          votesRemaining: Math.max(0, votesPerParticipant() - myVotesUsed),
+        }
+      : null,
+  };
+}
+
+function safeJson(s) { try { return JSON.parse(s || '{}'); } catch (_) { return {}; } }
+function safeConfig() { try { return loadConfig(); } catch (_) { return null; } }
+
+// ---------- session lifecycle ------------------------------------------------
+
+router.post('/sessions', (req, res) => {
+  const cfg = loadConfig();
+  let code = sessionCode();
+  while (getSession(code)) code = sessionCode();
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO sessions (code, workshop_title, created_at, updated_at) VALUES (?, ?, ?, ?)`
+  ).run(code, cfg.workshopTitle || 'Workshop', now, now);
+
+  const insSection = db.prepare(
+    `INSERT INTO sections (session_code, section_order, key, title, objective, main_prompt, image, fields_json, default_timer)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  (cfg.sections || []).forEach((sec, i) => {
+    insSection.run(
+      code,
+      sec.order || i + 1,
+      sec.key,
+      sec.title,
+      sec.objective || '',
+      sec.mainPrompt || '',
+      sec.image || '',
+      JSON.stringify(sec.fields || []),
+      sec.defaultTimerSeconds || (cfg.defaults && cfg.defaults.defaultSectionTimerSeconds) || 600
+    );
+  });
+  logActivity({ session_code: code, action: 'session_created' });
+  res.json({ code });
+});
+
+router.get('/session/:code/state', (req, res) => {
+  const state = buildState(req.params.code, { participantId: req.query.participant });
+  if (!state) return res.status(404).json({ error: 'Session not found' });
+  // Reachable-from-other-devices base URL for the room display's join prompt.
+  state.shareBase = shareBaseUrl(req);
+  state.joinUrl = `${state.shareBase}/join?session=${req.params.code}`;
+  res.json(state);
+});
+
+router.get('/session/:code/qr', async (req, res) => {
+  const s = getSession(req.params.code);
+  if (!s) return res.status(404).send('not found');
+  const url = `${shareBaseUrl(req)}/join?session=${req.params.code}`;
+  try {
+    const png = await QRCode.toBuffer(url, { width: 480, margin: 1, color: { dark: '#111111', light: '#ffffff' } });
+    res.type('png').send(png);
+  } catch (e) {
+    res.status(500).send('qr error');
+  }
+});
+
+// Master stage / display state.
+router.post('/session/:code/status', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { status } = req.body;
+  const allowed = ['welcome', 'roster', 'robot', 'groups', 'section', 'discussion', 'final'];
+  if (!allowed.includes(status)) return res.status(400).json({ error: 'bad status' });
+  db.prepare('UPDATE sessions SET status = ? WHERE code = ?').run(status, s.code);
+  logActivity({ session_code: s.code, action: 'status', prev_value: s.status, new_value: status });
+  ok(res, s.code, req);
+});
+
+router.post('/session/:code/section', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const total = db.prepare('SELECT COUNT(*) n FROM sections WHERE session_code = ?').get(s.code).n;
+  let next = s.current_section;
+  if (req.body.action === 'next') next = Math.min(total, s.current_section + 1) || 1;
+  else if (req.body.action === 'prev') next = Math.max(1, s.current_section - 1);
+  else if (req.body.set != null) next = Math.max(1, Math.min(total, Number(req.body.set)));
+  // Moving sections resets per-section interaction state.
+  db.prepare(
+    `UPDATE sessions SET current_section = ?, submission_status = 'closed', voting_status = 'closed',
+      selected_group_id = NULL, status = 'section' WHERE code = ?`
+  ).run(next, s.code);
+  db.prepare(`UPDATE groups SET status = 'not_started' WHERE session_code = ?`).run(s.code);
+  logActivity({ session_code: s.code, action: 'section', prev_value: s.current_section, new_value: next });
+  ok(res, s.code, req);
+});
+
+router.post('/session/:code/public-names', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const v = req.body.value ? 1 : 0;
+  db.prepare('UPDATE sessions SET public_names = ? WHERE code = ?').run(v, s.code);
+  ok(res, s.code, req);
+});
+
+router.post('/session/:code/notes-shared', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const v = req.body.value ? 1 : 0;
+  db.prepare('UPDATE sessions SET notes_shared = ? WHERE code = ?').run(v, s.code);
+  ok(res, s.code, req);
+});
+
+// ---------- timer ------------------------------------------------------------
+
+router.post('/session/:code/timer', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { action } = req.body;
+  const now = Date.now();
+  const cur = timerRemaining(s);
+  let ends = s.timer_ends_at, paused = s.timer_paused_remaining, dur = s.timer_duration;
+
+  if (action === 'start') {
+    let ms = Number(req.body.durationSeconds) * 1000;
+    if (!ms || Number.isNaN(ms)) ms = paused != null ? paused : (dur || 600000);
+    ends = now + ms; paused = null; dur = ms;
+  } else if (action === 'pause') {
+    if (ends != null && paused == null) { paused = Math.max(0, ends - now); ends = null; }
+  } else if (action === 'resume') {
+    if (paused != null) { ends = now + paused; paused = null; }
+  } else if (action === 'reset') {
+    ends = null; paused = null;
+  } else if (action === 'add') {
+    const delta = (Number(req.body.seconds) || 30) * 1000;
+    if (ends != null) ends += delta;
+    else if (paused != null) paused += delta;
+  } else if (action === 'sub') {
+    const delta = (Number(req.body.seconds) || 30) * 1000;
+    if (ends != null) ends = Math.max(now, ends - delta);
+    else if (paused != null) paused = Math.max(0, paused - delta);
+  }
+  db.prepare('UPDATE sessions SET timer_ends_at = ?, timer_paused_remaining = ?, timer_duration = ? WHERE code = ?')
+    .run(ends, paused, dur, s.code);
+  logActivity({ session_code: s.code, action: `timer_${action}` });
+  ok(res, s.code, req);
+});
+
+// ---------- registration -----------------------------------------------------
+
+router.post('/session/:code/register', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { name, company, role, presentPref, email, reportConsent } = req.body;
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required' });
+  const id = uid('p');
+  const now = Date.now();
+  const late = s.groups_finalized ? 1 : 0;
+  db.prepare(
+    `INSERT INTO participants (id, session_code, name, company, role, present_pref, email, report_consent, late_arrival, created_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id, s.code, String(name).trim(), (company || '').trim(), (role || '').trim(),
+    ['yes', 'maybe', 'no'].includes(presentPref) ? presentPref : 'no',
+    (email || '').trim() || null, reportConsent ? 1 : 0, late, now, now
+  );
+  logActivity({ session_code: s.code, actor: id, action: 'register', new_value: name });
+  res.json({ participantId: id, sessionCode: s.code, lateArrival: !!late });
+});
+
+router.get('/session/:code/participant/:id', (req, res) => {
+  const p = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(req.params.id, req.params.code);
+  if (!p) return res.status(404).json({ error: 'not found' });
+  db.prepare('UPDATE participants SET last_seen_at = ? WHERE id = ?').run(Date.now(), p.id);
+  res.json({ participantId: p.id, name: p.name, groupId: p.group_id });
+});
+
+// ---------- grouping ---------------------------------------------------------
+
+function runGrouping(code, { preserveLocked }) {
+  const cfg = safeConfig() || {};
+  const defaults = cfg.defaults || {};
+  const participants = db.prepare('SELECT * FROM participants WHERE session_code = ?').all(code);
+
+  let lockedByGroupName = {};
+  if (preserveLocked) {
+    const groupsById = new Map(db.prepare('SELECT * FROM groups WHERE session_code = ?').all(code).map((g) => [g.id, g]));
+    for (const p of participants) {
+      if (p.locked && p.group_id && groupsById.has(p.group_id)) {
+        const gname = groupsById.get(p.group_id).name;
+        (lockedByGroupName[gname] = lockedByGroupName[gname] || []).push(p.id);
+      }
+    }
+  }
+
+  const result = assignGroups(participants, {
+    groupNamePool: cfg.groupNamePool || undefined,
+    targetSize: defaults.targetGroupSize || 4,
+    minGroups: defaults.minGroups || 1,
+    maxGroups: defaults.maxGroups || (cfg.groupNamePool ? cfg.groupNamePool.length : 6),
+    lockedByGroupName,
+  });
+
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM groups WHERE session_code = ?').run(code);
+    db.prepare('UPDATE participants SET group_id = NULL, is_presenter = 0, is_recorder = 0 WHERE session_code = ?').run(code);
+    const insG = db.prepare(
+      `INSERT INTO groups (id, session_code, name, presenter_id, recorder_id, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    const now = Date.now();
+    for (const g of result.groups) {
+      const gid = uid('g');
+      insG.run(gid, code, g.name, g.presenterId, g.recorderId, g.sort_order, now);
+      for (const pid of g.memberIds) {
+        db.prepare('UPDATE participants SET group_id = ? WHERE id = ?').run(gid, pid);
+      }
+      if (g.presenterId) db.prepare('UPDATE participants SET is_presenter = 1 WHERE id = ?').run(g.presenterId);
+      if (g.recorderId) db.prepare('UPDATE participants SET is_recorder = 1 WHERE id = ?').run(g.recorderId);
+    }
+  });
+  tx();
+  logActivity({ session_code: code, action: preserveLocked ? 'groups_reroll' : 'groups_generate' });
+  return result.warnings || [];
+}
+
+router.post('/session/:code/groups/generate', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const warnings = runGrouping(s.code, { preserveLocked: false });
+  db.prepare('UPDATE sessions SET status = ? WHERE code = ?').run('groups', s.code);
+  res.json({ ok: true, warnings, state: buildState(s.code) });
+});
+
+router.post('/session/:code/groups/reroll', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const warnings = runGrouping(s.code, { preserveLocked: true });
+  res.json({ ok: true, warnings, state: buildState(s.code) });
+});
+
+router.post('/session/:code/groups/finalize', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  db.prepare('UPDATE sessions SET groups_finalized = 1 WHERE code = ?').run(s.code);
+  logActivity({ session_code: s.code, action: 'groups_finalize' });
+  ok(res, s.code, req);
+});
+
+// Overrides -------------------------------------------------------------------
+
+router.post('/session/:code/participant/:id/lock', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  db.prepare('UPDATE participants SET locked = ? WHERE id = ? AND session_code = ?')
+    .run(req.body.value ? 1 : 0, req.params.id, s.code);
+  ok(res, s.code, req);
+});
+
+router.post('/session/:code/swap', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { a, b } = req.body;
+  const pa = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(a, s.code);
+  const pb = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(b, s.code);
+  if (!pa || !pb) return res.status(400).json({ error: 'participants not found' });
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE participants SET group_id = ? WHERE id = ?').run(pb.group_id, pa.id);
+    db.prepare('UPDATE participants SET group_id = ? WHERE id = ?').run(pa.group_id, pb.id);
+    fixGroupRoles(s.code, pa.group_id);
+    fixGroupRoles(s.code, pb.group_id);
+  });
+  tx();
+  logActivity({ session_code: s.code, action: 'swap', new_value: `${a}<->${b}` });
+  ok(res, s.code, req);
+});
+
+router.post('/session/:code/move', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { participantId, groupId } = req.body;
+  const p = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(participantId, s.code);
+  const g = db.prepare('SELECT * FROM groups WHERE id = ? AND session_code = ?').get(groupId, s.code);
+  if (!p || !g) return res.status(400).json({ error: 'not found' });
+  const old = p.group_id;
+  db.prepare('UPDATE participants SET group_id = ?, late_arrival = 0 WHERE id = ?').run(groupId, participantId);
+  fixGroupRoles(s.code, old);
+  fixGroupRoles(s.code, groupId);
+  logActivity({ session_code: s.code, action: 'move', prev_value: old, new_value: groupId });
+  ok(res, s.code, req);
+});
+
+router.post('/session/:code/group/:gid/presenter', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  setRole(s.code, req.params.gid, req.body.participantId, 'presenter');
+  ok(res, s.code, req);
+});
+router.post('/session/:code/group/:gid/recorder', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  setRole(s.code, req.params.gid, req.body.participantId, 'recorder');
+  ok(res, s.code, req);
+});
+router.post('/session/:code/group/:gid/rename', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name required' });
+  db.prepare('UPDATE groups SET name = ? WHERE id = ? AND session_code = ?').run(name, req.params.gid, s.code);
+  ok(res, s.code, req);
+});
+
+function setRole(code, gid, participantId, role) {
+  const col = role === 'presenter' ? 'is_presenter' : 'is_recorder';
+  const gcol = role === 'presenter' ? 'presenter_id' : 'recorder_id';
+  const g = db.prepare('SELECT * FROM groups WHERE id = ? AND session_code = ?').get(gid, code);
+  if (!g) return;
+  // clear old holder in this group
+  db.prepare(`UPDATE participants SET ${col} = 0 WHERE group_id = ?`).run(gid);
+  if (participantId) {
+    db.prepare(`UPDATE participants SET ${col} = 1 WHERE id = ? AND group_id = ?`).run(participantId, gid);
+  }
+  db.prepare(`UPDATE groups SET ${gcol} = ? WHERE id = ?`).run(participantId || null, gid);
+  logActivity({ session_code: code, action: `set_${role}`, new_value: `${gid}:${participantId}` });
+}
+
+// Keep group.presenter_id/recorder_id consistent if their holder left the group.
+function fixGroupRoles(code, gid) {
+  if (!gid) return;
+  const g = db.prepare('SELECT * FROM groups WHERE id = ? AND session_code = ?').get(gid, code);
+  if (!g) return;
+  const members = db.prepare('SELECT * FROM participants WHERE group_id = ?').all(gid);
+  const has = (id) => members.some((m) => m.id === id);
+  let presenter = has(g.presenter_id) ? g.presenter_id : null;
+  let recorder = has(g.recorder_id) ? g.recorder_id : null;
+  if (!presenter) {
+    const cand = members.find((m) => ['yes', 'maybe'].includes(m.present_pref)) || members[0];
+    presenter = cand ? cand.id : null;
+  }
+  if (!recorder) {
+    const cand = members.find((m) => m.id !== presenter) || members[0];
+    recorder = cand ? cand.id : null;
+  }
+  db.prepare('UPDATE participants SET is_presenter = 0, is_recorder = 0 WHERE group_id = ?').run(gid);
+  if (presenter) db.prepare('UPDATE participants SET is_presenter = 1 WHERE id = ?').run(presenter);
+  if (recorder) db.prepare('UPDATE participants SET is_recorder = 1 WHERE id = ?').run(recorder);
+  db.prepare('UPDATE groups SET presenter_id = ?, recorder_id = ? WHERE id = ?').run(presenter, recorder, gid);
+}
+
+// ---------- submissions ------------------------------------------------------
+
+router.post('/session/:code/submissions', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { status } = req.body; // open|closed|revealed
+  if (!['open', 'closed', 'revealed'].includes(status)) return res.status(400).json({ error: 'bad status' });
+  db.prepare('UPDATE sessions SET submission_status = ? WHERE code = ?').run(status, s.code);
+  logActivity({ session_code: s.code, action: 'submission_status', new_value: status });
+  ok(res, s.code, req);
+});
+
+router.post('/session/:code/submission', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { participantId, response, summary, submit } = req.body;
+  const p = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(participantId, s.code);
+  if (!p || !p.group_id) return res.status(400).json({ error: 'You are not in a group.' });
+  if (!p.is_recorder) return res.status(403).json({ error: 'Only the group recorder can edit the answer.' });
+  if (s.submission_status !== 'open') return res.status(409).json({ error: 'Submissions are closed.' });
+  if (!s.current_section) return res.status(409).json({ error: 'No active section.' });
+
+  const existing = db
+    .prepare('SELECT * FROM submissions WHERE session_code = ? AND section_order = ? AND group_id = ?')
+    .get(s.code, s.current_section, p.group_id);
+  const now = Date.now();
+  const respJson = JSON.stringify(response || {});
+  const submitted = submit ? 1 : (existing ? existing.submitted : 0);
+  if (existing) {
+    db.prepare(
+      `UPDATE submissions SET response_json = ?, summary_response = ?, submitted = ?, submitted_at = COALESCE(submitted_at, ?), updated_at = ? WHERE id = ?`
+    ).run(respJson, summary || null, submitted, submit ? now : existing.submitted_at, now, existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO submissions (id, session_code, section_order, group_id, response_json, summary_response, submitted, submitted_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(uid('s'), s.code, s.current_section, p.group_id, respJson, summary || null, submitted, submit ? now : null, now);
+  }
+  // group status
+  const status = submitted ? 'submitted' : 'working';
+  db.prepare(`UPDATE groups SET status = ? WHERE id = ? AND session_code = ?`).run(status, p.group_id, s.code);
+  logActivity({ session_code: s.code, actor: participantId, action: submit ? 'submit' : 'save', new_value: p.group_id });
+  res.json({ ok: true, state: buildState(s.code, { participantId }) });
+});
+
+// ---------- voting -----------------------------------------------------------
+
+router.post('/session/:code/voting', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { status } = req.body; // open|closed|revealed
+  if (!['open', 'closed', 'revealed'].includes(status)) return res.status(400).json({ error: 'bad status' });
+  // Voting can only open once submissions are revealed.
+  if (status === 'open' && s.submission_status !== 'revealed') {
+    return res.status(409).json({ error: 'Reveal submissions before opening voting.' });
+  }
+  db.prepare('UPDATE sessions SET voting_status = ? WHERE code = ?').run(status, s.code);
+  logActivity({ session_code: s.code, action: 'voting_status', new_value: status });
+  ok(res, s.code, req);
+});
+
+router.post('/session/:code/vote', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { participantId, submissionId } = req.body;
+  const participant = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(participantId, s.code);
+  const submission = db.prepare('SELECT * FROM submissions WHERE id = ? AND session_code = ?').get(submissionId, s.code);
+  const existingVoteCount = participant
+    ? db.prepare('SELECT COUNT(*) n FROM votes WHERE session_code = ? AND section_order = ? AND voter_id = ?')
+        .get(s.code, s.current_section, participantId).n
+    : 0;
+
+  // Toggle off if already voted for this submission.
+  const already = db
+    .prepare('SELECT * FROM votes WHERE session_code = ? AND section_order = ? AND submission_id = ? AND voter_id = ?')
+    .get(s.code, s.current_section, submissionId, participantId);
+  if (already) {
+    db.prepare('DELETE FROM votes WHERE id = ?').run(already.id);
+    return res.json({ ok: true, removed: true, state: buildState(s.code, { participantId }) });
+  }
+
+  const check = canVote({ session: s, participant, submission, existingVoteCount, votesPerParticipant: votesPerParticipant() });
+  if (!check.ok) return res.status(409).json({ error: check.reason });
+  db.prepare(
+    'INSERT INTO votes (id, session_code, section_order, submission_id, voter_id, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(uid('v'), s.code, s.current_section, submissionId, participantId, Date.now());
+  res.json({ ok: true, state: buildState(s.code, { participantId }) });
+});
+
+// ---------- selection --------------------------------------------------------
+
+router.post('/session/:code/select', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { mode, groupId, avoidRepeats } = req.body;
+  const groups = db.prepare('SELECT * FROM groups WHERE session_code = ? ORDER BY sort_order').all(s.code);
+  if (!groups.length) return res.status(409).json({ error: 'No groups yet.' });
+
+  let chosen = null, reel = [];
+  if (mode === 'manual') {
+    chosen = groups.find((g) => g.id === groupId) || null;
+    reel = [chosen ? chosen.id : groups[0].id];
+  } else if (mode === 'highest') {
+    const rows = db
+      .prepare(
+        `SELECT group_id, COUNT(v.id) n FROM submissions sub
+         LEFT JOIN votes v ON v.submission_id = sub.id
+         WHERE sub.session_code = ? AND sub.section_order = ? GROUP BY sub.group_id ORDER BY n DESC`
+      )
+      .all(s.code, s.current_section);
+    const topId = rows.length ? rows[0].group_id : groups[0].id;
+    chosen = groups.find((g) => g.id === topId) || groups[0];
+    reel = [chosen.id];
+  } else {
+    // random or not_heard
+    let eligibleIds = null;
+    if (mode === 'not_heard') {
+      const min = Math.min(...groups.map((g) => g.heard_count));
+      eligibleIds = groups.filter((g) => g.heard_count === min).map((g) => g.id);
+    }
+    const r = pickGroup(groups, { avoidRepeats: avoidRepeats !== false, eligibleIds });
+    chosen = groups.find((g) => g.id === r.groupId) || null;
+    reel = r.reel;
+  }
+  if (!chosen) return res.status(400).json({ error: 'Could not select a group.' });
+
+  db.prepare(`UPDATE groups SET status = 'submitted' WHERE session_code = ? AND status = 'selected'`).run(s.code);
+  db.prepare('UPDATE groups SET status = ?, heard_count = heard_count + 1 WHERE id = ?').run('selected', chosen.id);
+  db.prepare('UPDATE sessions SET selected_group_id = ?, status = ? WHERE code = ?').run(chosen.id, 'discussion', s.code);
+  logActivity({ session_code: s.code, action: 'select', new_value: chosen.id });
+  res.json({ ok: true, groupId: chosen.id, reel, state: buildState(s.code) });
+});
+
+router.post('/session/:code/select/clear', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  db.prepare('UPDATE sessions SET selected_group_id = NULL, status = ? WHERE code = ?').run('section', s.code);
+  ok(res, s.code, req);
+});
+
+// ---------- notes ------------------------------------------------------------
+
+router.post('/session/:code/note', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { body, groupId, keyPoint, sectionOrder } = req.body;
+  if (!body || !String(body).trim()) return res.status(400).json({ error: 'empty note' });
+  db.prepare(
+    'INSERT INTO notes (id, session_code, section_order, group_id, body, key_point, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(uid('n'), s.code, sectionOrder || s.current_section || 0, groupId || null, String(body).trim(), keyPoint ? 1 : 0, Date.now());
+  logActivity({ session_code: s.code, action: 'note' });
+  ok(res, s.code, req);
+});
+
+// ---------- control token ----------------------------------------------------
+
+router.post('/session/:code/control/take', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  db.prepare('UPDATE sessions SET control_device_id = ? WHERE code = ?').run(req.body.deviceId || null, s.code);
+  logActivity({ session_code: s.code, action: 'take_control', new_value: req.body.deviceId });
+  ok(res, s.code, req);
+});
+
+// ---------- exports ----------------------------------------------------------
+
+router.get('/session/:code/export/section/:order', (req, res) => {
+  const s = getSession(req.params.code);
+  if (!s) return res.status(404).send('not found');
+  const md = renderSection(s.code, Number(req.params.order), { heading: '#' });
+  sendMarkdown(res, `${s.code}_section_${req.params.order}.md`, md);
+});
+
+router.get('/session/:code/export/brief', (req, res) => {
+  const s = getSession(req.params.code);
+  if (!s) return res.status(404).send('not found');
+  const md = buildBriefPackage(s.code);
+  // Persist a copy to /exports for the facilitator.
+  try {
+    const fs = require('fs'); const path = require('path');
+    const dir = path.join(__dirname, '..', '..', 'exports');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${s.code}_brief_package.md`), md);
+  } catch (_) {}
+  sendMarkdown(res, `${s.code}_brief_package.md`, md);
+});
+
+// ---------- shared responders ------------------------------------------------
+
+function requireSession(res, code) {
+  const s = getSession(code);
+  if (!s) { res.status(404).json({ error: 'Session not found' }); return null; }
+  return s;
+}
+function ok(res, code, req) {
+  touch(code);
+  res.json({ ok: true, state: buildState(code, { participantId: req.query.participant || (req.body && req.body.participantId) }) });
+}
+function sendMarkdown(res, filename, md) {
+  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(md);
+}
+
+module.exports = router;

@@ -1,0 +1,238 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Group Workspace — Robotics PRD Workshop</title>
+<link rel="stylesheet" href="/css/theme.css">
+
+<div class="topbar">
+  <div class="brand"><span class="slashes">//</span> <span id="groupName">GROUP</span></div>
+  <span class="conn" id="conn"><span class="dot"></span></span>
+</div>
+
+<div class="wrap col" style="max-width:640px;">
+  <div id="loading" class="panel">Loading your workspace…</div>
+
+  <div id="main" class="hidden col">
+    <!-- Group header -->
+    <div class="panel hud">
+      <div class="spread">
+        <div>
+          <div class="label">YOUR GROUP</div>
+          <h1 class="accent" id="gName" style="margin:4px 0;">—</h1>
+        </div>
+        <div class="timer big" id="timer">--:--</div>
+      </div>
+      <div class="wrap-cols" id="members" style="margin-top:12px;"></div>
+      <div id="roleNote" class="mute" style="font-size:0.8rem; margin-top:10px;"></div>
+    </div>
+
+    <!-- Section prompt + form -->
+    <div id="sectionBox" class="panel col">
+      <div class="label" id="secLabel">WAITING FOR SECTION</div>
+      <h2 id="secTitle">—</h2>
+      <p class="dim" id="secObjective" style="font-size:0.9rem;"></p>
+      <div class="disclaimer" id="secPrompt"></div>
+
+      <div id="thinking" class="banner hidden" style="margin-top:6px;"></div>
+
+      <div id="fields" class="col" style="margin-top:8px;"></div>
+
+      <label class="field" style="margin-top:6px;">
+        <span class="label">COLLECTIVE ANSWER (HEADLINE)</span>
+        <textarea id="summary" placeholder="Your group's one-line takeaway"></textarea>
+      </label>
+
+      <div class="spread">
+        <span class="mono mute" id="saveStatus"></span>
+        <div class="btn-group">
+          <button id="saveBtn">Save Draft</button>
+          <button class="primary" id="submitBtn">▶ Submit</button>
+        </div>
+      </div>
+      <div id="recorderLock" class="banner warn hidden" style="margin-top:8px;"></div>
+    </div>
+
+    <!-- Voting -->
+    <div id="voteBox" class="panel col hidden">
+      <div class="spread"><div class="label">VOTE — PICK UP TO <span id="voteMax">2</span></div>
+        <span class="pill" id="votesLeftPill"><span class="dot"></span><span id="votesLeft"></span> LEFT</span></div>
+      <p class="dim" style="font-size:0.85rem;">Choose the answers that resonate most. You can't vote for your own group.</p>
+      <div id="voteList" class="col"></div>
+    </div>
+
+    <!-- Selected/discussion -->
+    <div id="discussBox" class="panel hidden">
+      <div class="label">NOW DISCUSSING</div>
+      <h2 id="discussGroup" class="accent" style="margin:6px 0;">—</h2>
+      <div id="discussAnswer" class="dim"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+WS.init();
+const PID = WS.qs.get('participant');
+let countdown, currentSectionOrder = null, myGroupId = null, isRecorder = false;
+let dirty = false, lastServerResp = {}, lastServerSummary = '';
+
+function boot() {
+  if (!WS.session || !PID) { el('loading').textContent = 'Missing session or participant.'; return; }
+  countdown = makeCountdown(el('timer'));
+  WS.startPolling(4500, render, { participant: PID });
+}
+
+function render(state) {
+  el('loading').classList.add('hidden');
+  el('main').classList.remove('hidden');
+  countdown.sync(state.session.timer, state.serverNow);
+
+  const me = state.me || (state.participants || []).find((p) => p.id === PID);
+  const group = me && me.groupId ? state.groups.find((g) => g.id === me.groupId) : null;
+  if (!group) {
+    el('gName').textContent = 'Not assigned yet';
+    el('groupName').textContent = 'GROUP';
+    el('sectionBox').classList.add('hidden');
+    return;
+  }
+  el('sectionBox').classList.remove('hidden');
+  myGroupId = group.id;
+  isRecorder = !!(me && me.isRecorder);
+  el('gName').textContent = group.name;
+  el('groupName').textContent = group.name.toUpperCase();
+
+  // members
+  const pById = indexBy(state.participants, 'id');
+  const mem = el('members'); clear(mem);
+  for (const id of group.memberIds) {
+    const p = pById.get(id); if (!p) continue;
+    const ico = roleIcon(p.isPresenter, p.isRecorder);
+    mem.appendChild(h('span', { class: 'chip' }, [
+      h('span', { text: p.name }),
+      ico ? h('span', { class: 'role-ico', text: ico }) : null,
+    ]));
+  }
+  el('roleNote').innerHTML = isRecorder
+    ? '✏️ You are the <b>recorder</b> — you enter the group\'s answer.'
+    : 'Only your group\'s <b>recorder</b> (✏️) can edit the answer. You can follow along here.';
+
+  renderSection(state, group, me);
+  renderVoting(state, group, me);
+  renderDiscuss(state);
+}
+
+function renderSection(state, group, me) {
+  const sec = state.currentSection;
+  const box = el('sectionBox');
+  if (!sec) { el('secLabel').textContent = 'WAITING FOR SECTION'; el('secTitle').textContent = '—'; el('fields').innerHTML=''; return; }
+
+  const secChanged = currentSectionOrder !== sec.order;
+  currentSectionOrder = sec.order;
+  el('secLabel').textContent = `SECTION ${sec.order}`;
+  el('secTitle').textContent = sec.title;
+  el('secObjective').textContent = sec.objective || '';
+  el('secPrompt').textContent = sec.mainPrompt || '';
+
+  const think = el('thinking');
+  const sil = state.config && state.config.defaults && state.config.defaults.silentThinkingSeconds;
+  if (sil) { think.classList.remove('hidden'); think.textContent = `Tip: start with ~${sil}s of silent individual thinking before discussing.`; }
+
+  // Build fields (only rebuild on section change to avoid clobbering typing)
+  const mySub = (state.submissions || []).find((s) => s.groupId === group.id);
+  const open = state.session.submissionStatus === 'open';
+  if (secChanged) {
+    const wrap = el('fields'); clear(wrap);
+    lastServerResp = (mySub && mySub.response) || {};
+    lastServerSummary = (mySub && mySub.summary) || '';
+    for (const f of sec.fields) {
+      wrap.appendChild(h('label', { class: 'field' }, [
+        h('span', { class: 'label', text: f.label }),
+        h('textarea', { id: 'f_' + f.key, 'data-key': f.key, oninput: () => { dirty = true; el('saveStatus').textContent = 'Unsaved changes'; } }),
+      ]));
+    }
+    el('fields').querySelectorAll('textarea').forEach((t) => { t.value = lastServerResp[t.dataset.key] || ''; });
+    el('summary').value = lastServerSummary;
+    dirty = false;
+  } else if (!dirty && mySub) {
+    // Passive refresh from server if the recorder hasn't started typing.
+    el('fields').querySelectorAll('textarea').forEach((t) => {
+      const v = (mySub.response || {})[t.dataset.key] || '';
+      if (t.value !== v && document.activeElement !== t) t.value = v;
+    });
+    if (document.activeElement !== el('summary') && mySub.summary != null) el('summary').value = mySub.summary || '';
+  }
+
+  // enable/disable editing
+  const editable = isRecorder && open;
+  el('fields').querySelectorAll('textarea').forEach((t) => (t.disabled = !editable));
+  el('summary').disabled = !editable;
+  el('saveBtn').disabled = !editable;
+  el('submitBtn').disabled = !editable;
+  const lock = el('recorderLock');
+  if (!isRecorder) { lock.classList.remove('hidden'); lock.textContent = 'View-only — you are not the recorder.'; }
+  else if (!open) { lock.classList.remove('hidden'); lock.textContent = state.session.submissionStatus === 'revealed' ? 'Submissions revealed — editing locked.' : 'Submissions are closed. Wait for the facilitator to open them.'; }
+  else lock.classList.add('hidden');
+
+  if (mySub && mySub.submitted) el('saveStatus').textContent = 'Submitted ✓';
+}
+
+function collect() {
+  const response = {};
+  el('fields').querySelectorAll('textarea').forEach((t) => { if (t.value.trim()) response[t.dataset.key] = t.value.trim(); });
+  return { response, summary: el('summary').value.trim() };
+}
+async function save(submit) {
+  const { response, summary } = collect();
+  try {
+    const r = await WS.post(`/session/${WS.session}/submission`, { participantId: PID, response, summary, submit });
+    dirty = false;
+    el('saveStatus').textContent = submit ? 'Submitted ✓' : 'Saved ✓';
+    toast(submit ? 'Submitted!' : 'Draft saved');
+    if (r.state) render(r.state);
+  } catch (e) { toast(e.message, true); }
+}
+el('saveBtn').addEventListener('click', () => save(false));
+el('submitBtn').addEventListener('click', () => save(true));
+
+function renderVoting(state, group, me) {
+  const box = el('voteBox');
+  if (state.session.votingStatus !== 'open') { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  el('voteMax').textContent = (state.config && state.config.defaults && state.config.defaults.votesPerParticipant) || 2;
+  el('votesLeft').textContent = me ? me.votesRemaining : 0;
+  const list = el('voteList'); clear(list);
+  const gById = indexBy(state.groups, 'id');
+  for (const sub of state.submissions) {
+    const own = sub.groupId === group.id;
+    const gname = (gById.get(sub.groupId) || {}).name || 'Group';
+    const card = h('div', { class: 'panel', style: 'padding:14px;' }, [
+      h('div', { class: 'spread' }, [
+        h('div', { class: 'label', text: own ? gname + ' (your group)' : gname }),
+        own ? h('span', { class: 'mute mono', text: 'NO SELF-VOTE' })
+            : h('button', { class: 'small', 'data-sub': sub.id, onclick: (e) => vote(e.target.dataset.sub) }, 'Vote'),
+      ]),
+      h('div', { class: 'dim', style: 'margin-top:6px; font-size:0.9rem;', text: sub.summary || '(no headline)' }),
+    ]);
+    list.appendChild(card);
+  }
+}
+async function vote(subId) {
+  try {
+    const r = await WS.post(`/session/${WS.session}/vote`, { participantId: PID, submissionId: subId });
+    toast(r.removed ? 'Vote removed' : 'Voted');
+    if (r.state) render(r.state);
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderDiscuss(state) {
+  const box = el('discussBox');
+  const sel = state.session.selectedGroupId;
+  if (!sel || state.session.status !== 'discussion') { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  const g = state.groups.find((x) => x.id === sel);
+  el('discussGroup').textContent = g ? g.name : '—';
+  const sub = (state.submissions || []).find((s) => s.groupId === sel);
+  el('discussAnswer').textContent = sub && sub.summary ? sub.summary : 'Presenting…';
+}
+
+boot();
+</script>

@@ -1,0 +1,140 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join — Robotics PRD Workshop</title>
+<link rel="stylesheet" href="/css/theme.css">
+
+<div class="topbar">
+  <div class="brand"><span class="slashes">//</span> JOIN</div>
+  <span class="conn" id="conn"><span class="dot"></span></span>
+</div>
+
+<div class="wrap col" style="max-width:520px;">
+  <div id="loading" class="panel">Loading…</div>
+
+  <!-- Registration form -->
+  <div id="form" class="hidden col">
+    <div>
+      <div class="label">SESSION <span id="codeLbl"></span></div>
+      <h1 id="wsTitle" style="margin-top:8px;">Workshop</h1>
+      <p class="dim" id="wsPurpose" style="font-size:0.9rem;"></p>
+    </div>
+    <div class="panel hud col">
+      <label class="field"><span class="label">NAME *</span><input type="text" id="name" autocomplete="name"></label>
+      <label class="field"><span class="label">COMPANY</span><input type="text" id="company" autocomplete="organization"></label>
+      <label class="field"><span class="label">ROLE / CATEGORY</span>
+        <select id="role"></select>
+      </label>
+      <div class="field">
+        <span class="label">WILLING TO PRESENT?</span>
+        <div class="choice-row" id="present">
+          <div class="choice" data-v="yes">Yes</div>
+          <div class="choice" data-v="maybe">Maybe</div>
+          <div class="choice active" data-v="no">No</div>
+        </div>
+      </div>
+      <label class="field"><span class="label">EMAIL (OPTIONAL)</span><input type="email" id="email" autocomplete="email" placeholder="for the workshop summary"></label>
+      <label class="check"><input type="checkbox" id="consent"> <span class="dim" style="font-size:0.85rem;">Send me the final workshop summary</span></label>
+      <button class="primary" id="submitBtn" style="margin-top:12px;">▶ Join Workshop</button>
+    </div>
+  </div>
+
+  <!-- Confirmation / waiting -->
+  <div id="joined" class="hidden col">
+    <div class="panel hud">
+      <div class="label">YOU'RE IN</div>
+      <h1 id="joinedName" style="margin:8px 0;">Welcome</h1>
+      <div class="row" style="gap:24px;">
+        <div><div class="label">PARTICIPANT</div><div class="mono" id="pid"></div></div>
+        <div><div class="label">SESSION</div><div class="mono" id="pcode"></div></div>
+      </div>
+      <hr class="hr">
+      <div id="groupBox">
+        <div class="banner">Waiting for the facilitator to generate groups… keep this page open.</div>
+      </div>
+      <div id="goGroup" class="hidden" style="margin-top:14px;">
+        <button class="primary" id="goGroupBtn">▶ Go to my group workspace</button>
+      </div>
+    </div>
+    <p class="mute" style="font-size:0.8rem;">This page reconnects you automatically if your browser closes.</p>
+  </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script>
+WS.init();
+let present = 'no';
+
+async function boot() {
+  if (!WS.session) { el('loading').textContent = 'Missing session code.'; return; }
+  // Already registered on this device?
+  const existing = WS.loadParticipant();
+  if (existing) {
+    try {
+      await WS.get(`/session/${WS.session}/participant/${existing}`);
+      return goJoined(existing);
+    } catch (_) { WS.clearParticipant(); }
+  }
+  let state;
+  try { state = await WS.get(`/session/${WS.session}/state`); }
+  catch (e) { el('loading').textContent = 'Session not found.'; return; }
+
+  el('codeLbl').textContent = WS.session;
+  el('wsTitle').textContent = (state.config && state.config.workshopTitle) || 'Workshop';
+  el('wsPurpose').textContent = (state.config && state.config.purpose) || '';
+  const roles = (state.config && state.config.roleCategories) || ['Other'];
+  const sel = el('role');
+  roles.forEach((r) => sel.appendChild(h('option', { value: r, text: r })));
+  el('loading').classList.add('hidden');
+  el('form').classList.remove('hidden');
+  setConn('live');
+}
+
+document.querySelectorAll('#present .choice').forEach((c) => {
+  c.addEventListener('click', () => {
+    document.querySelectorAll('#present .choice').forEach((x) => x.classList.remove('active'));
+    c.classList.add('active');
+    present = c.dataset.v;
+  });
+});
+
+el('submitBtn').addEventListener('click', async () => {
+  const name = el('name').value.trim();
+  if (!name) return toast('Name is required', true);
+  el('submitBtn').disabled = true;
+  try {
+    const r = await WS.post(`/session/${WS.session}/register`, {
+      name, company: el('company').value.trim(), role: el('role').value,
+      presentPref: present, email: el('email').value.trim(), reportConsent: el('consent').checked,
+    });
+    WS.saveParticipant(r.participantId);
+    if (r.lateArrival) toast('Registered — you joined after groups formed; the facilitator will place you.');
+    goJoined(r.participantId);
+  } catch (e) { toast(e.message, true); el('submitBtn').disabled = false; }
+});
+
+function goJoined(pid) {
+  el('form').classList.add('hidden');
+  el('loading').classList.add('hidden');
+  el('joined').classList.remove('hidden');
+  el('pid').textContent = pid.slice(0, 10);
+  el('pcode').textContent = WS.session;
+  WS.startPolling(4500, (state) => {
+    const me = (state.participants || []).find((p) => p.id === pid);
+    if (me) el('joinedName').textContent = me.name;
+    const group = me && me.groupId ? (state.groups || []).find((g) => g.id === me.groupId) : null;
+    if (group) {
+      el('groupBox').innerHTML = '';
+      el('groupBox').appendChild(h('div', {}, [
+        h('div', { class: 'label', text: 'YOUR GROUP' }),
+        h('h1', { class: 'accent', style: 'margin:6px 0;', text: group.name }),
+      ]));
+      el('goGroup').classList.remove('hidden');
+    }
+  }, { participant: pid });
+  el('goGroupBtn').addEventListener('click', () => {
+    location.href = `/group?session=${WS.session}&participant=${pid}`;
+  });
+}
+
+boot();
+</script>
