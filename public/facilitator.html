@@ -63,6 +63,13 @@
           <p class="dim mini" id="secPrompt"></p>
         </div>
 
+        <!-- Round order -->
+        <div class="panel col">
+          <div class="label">ROUND ORDER</div>
+          <p class="mini mute">Reorder the rounds before you run them.</p>
+          <div id="roundOrder" class="col" style="gap:4px;"></div>
+        </div>
+
         <!-- Submission + voting flow -->
         <div class="panel col">
           <div class="label">FLOW CONTROL</div>
@@ -184,6 +191,7 @@ function onState(s) {
 
   renderStageNav(s);
   renderSection(s);
+  renderRoundOrder(s);
   renderGroups(s);
   renderMonitor(s);
   renderParticipants(s);
@@ -230,6 +238,21 @@ function renderSection(s) {
   el('secNum').textContent = s.session.currentSection || 0;
   el('secTitle').textContent = s.currentSection ? s.currentSection.title : '(none)';
   el('secPrompt').textContent = s.currentSection ? s.currentSection.mainPrompt : '';
+}
+
+function renderRoundOrder(s) {
+  const box = el('roundOrder'); clear(box);
+  s.sections.forEach((sec, i) => {
+    box.appendChild(h('div', { class:'row-item mini' }, [
+      h('span', { class:'mono mute', text:'R' + sec.section_order }),
+      h('span', { text: sec.title }),
+      h('span', { style:'margin-left:auto;' }),
+      h('button', { class:'small ghost', disabled: i === 0,
+        onclick:() => post(`/session/${WS.session}/sections/reorder`, { order: sec.section_order, direction:'up' }) }, '↑'),
+      h('button', { class:'small ghost', disabled: i === s.sections.length - 1,
+        onclick:() => post(`/session/${WS.session}/sections/reorder`, { order: sec.section_order, direction:'down' }) }, '↓'),
+    ]));
+  });
 }
 
 function renderGroups(s) {

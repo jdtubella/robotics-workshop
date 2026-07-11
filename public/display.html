@@ -6,7 +6,7 @@
   body { overflow-x: hidden; }
   .stage { min-height: 100vh; padding: 40px 56px; display: flex; flex-direction: column; }
   .stage .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
-  .robot-img { width: min(44vw, 620px); max-width: 100%; max-height: 60vh; object-fit: contain;
+  .robot-img { width: min(50vw, 760px); max-width: 100%; max-height: 66vh; object-fit: cover;
     border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); }
   .big-list li { margin-bottom:8px; }
   .fade { animation: fade 0.5s ease; }
@@ -44,6 +44,8 @@ function viewSignature(s) {
     st: s.session.status, sec: s.session.currentSection, sub: s.session.submissionStatus,
     vote: s.session.votingStatus, sel: s.session.selectedGroupId, pub: s.session.publicNames,
     notesShared: s.session.notesShared, share: s.shareBase,
+    secKey: s.currentSection ? s.currentSection.key : null,
+    order: s.sections.map((x) => x.title),
     parts: s.participants.map((p) => [p.id, p.name, p.company, p.groupId, p.isPresenter, p.isRecorder]),
     groups: s.groups.map((g) => [g.id, g.name, g.status, g.heardCount, g.memberIds.join(',')]),
     subs: (s.submissions || []).map((x) => [x.id, x.groupId, x.submitted, x.summary, x.votes]),
@@ -239,7 +241,7 @@ function section(state) {
         h('p', { class:'accent', style:'font-size:1.25rem; max-width:52ch; margin-top:6px;', text: sec.mainPrompt || '' }),
         h('p', { class:'dim', style:'font-size:0.98rem; max-width:62ch;', text: sec.scenario || sec.objective || '' }),
       ]),
-      sec.image ? h('img', { class:'robot-img', src: sec.image, style:'width:32vw; max-height:34vh;' }) : null,
+      sec.image ? h('img', { class:'robot-img', src: sec.image, style:'width:min(46vw,700px); max-height:52vh;' }) : null,
     ]),
     discuss,
     grid,
@@ -273,23 +275,28 @@ function discussion(state) {
 }
 
 function final(state) {
-  const gById = indexBy(state.groups, 'id');
+  const img = state.config && state.config.finalImage;
   return h('div', { class:'col grow' }, [
     head(state),
-    h('div', { class:'label', text:'WORKSHOP COMPLETE' }),
-    h('h1', { class:'display', text:'Thank You' }),
-    h('p', { class:'dim', style:'max-width:60ch; font-size:1.1rem;', text:'You\'ve helped surface the questions, assumptions, and candidate requirements that a real construction-robot PRD would need to resolve.' }),
-    h('div', { class:'disclaimer', text: (state.config && state.config.disclaimer) || '' }),
-    h('div', { class:'row', style:'margin-top:24px; gap:40px; align-items:center;' }, [
-      h('div', {}, [ h('div',{class:'label',text:'GET THE SUMMARY'}), h('div', { class:'qr', style:'margin-top:8px;' }, [ getQr(state.session.code) ]) ]),
-      h('div', {}, [
-        h('div',{class:'label',text:'NEXT STEPS'}),
-        h('ul',{class:'dim',style:'font-size:1.05rem; margin-top:8px;'}, [
-          h('li',{text:'The facilitator will compile a Preliminary Robotic Product Requirements Brief.'}),
-          h('li',{text:'Consented participants receive the summary by email.'}),
-          h('li',{text:'This is stakeholder intelligence — not an approved PRD.'}),
+    h('div', { class:'row', style:'gap:44px; align-items:center;' }, [
+      h('div', { class:'col grow' }, [
+        h('div', { class:'label', text:'WORKSHOP COMPLETE' }),
+        h('h1', { class:'display', text:'Thank You' }),
+        h('p', { class:'dim', style:'max-width:52ch; font-size:1.1rem;', text:'You\'ve helped surface the questions, assumptions, and candidate requirements that a real construction-robot PRD would need to resolve.' }),
+        h('div', { class:'disclaimer', text: (state.config && state.config.disclaimer) || '' }),
+        h('div', { class:'row', style:'margin-top:20px; gap:32px; align-items:center;' }, [
+          h('div', {}, [ h('div',{class:'label',text:'GET THE SUMMARY'}), h('div', { class:'qr', style:'margin-top:8px;' }, [ getQr(state.session.code) ]) ]),
+          h('div', {}, [
+            h('div',{class:'label',text:'NEXT STEPS'}),
+            h('ul',{class:'dim',style:'font-size:1.02rem; margin-top:8px;'}, [
+              h('li',{text:'The facilitator will compile a Preliminary Robotic Product Requirements Brief.'}),
+              h('li',{text:'Consented participants receive the summary by email.'}),
+              h('li',{text:'This is stakeholder intelligence — not an approved PRD.'}),
+            ]),
+          ]),
         ]),
       ]),
+      img ? h('img', { class:'robot-img', src: img }) : null,
     ]),
   ]);
 }

@@ -116,6 +116,9 @@ function h(tag, attrs = {}, children = []) {
     else if (k === 'html') n.innerHTML = v;
     else if (k === 'text') n.textContent = v;
     else if (k.startsWith('on') && typeof v === 'function') n.addEventListener(k.slice(2), v);
+    // Boolean attributes (disabled, checked, selected…): present only when true.
+    // `setAttribute(k, false)` would still apply them, so handle booleans explicitly.
+    else if (typeof v === 'boolean') { if (v) n.setAttribute(k, ''); }
     else if (v != null) n.setAttribute(k, v);
   }
   for (const c of [].concat(children)) {

@@ -46,6 +46,8 @@
     ]
   },
 
+  "finalImage": "/assets/robot/final.png",
+
   "groupNamePool": ["Atlas", "Crane", "Rover", "Dozer", "Survey", "Lift", "Girder", "Anchor"],
 
   "defaults": {

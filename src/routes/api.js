@@ -168,6 +168,7 @@ function buildState(code, { participantId } = {}) {
           purpose: cfg.purpose,
           disclaimer: cfg.disclaimer,
           robot: cfg.robot,
+          finalImage: cfg.finalImage,
           roleCategories: cfg.roleCategories,
           defaults: cfg.defaults,
         }
@@ -307,6 +308,35 @@ router.post('/session/:code/section', (req, res) => {
   ).run(next, s.code);
   db.prepare(`UPDATE groups SET status = 'not_started' WHERE session_code = ?`).run(s.code);
   logActivity({ session_code: s.code, action: 'section', prev_value: s.current_section, new_value: next });
+  ok(res, s.code, req);
+});
+
+// Reorder a round by swapping it with its neighbour. Any submissions/votes/notes
+// already tied to those positions move with them, so it's safe before or during setup.
+router.post('/session/:code/sections/reorder', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const cur = Number(req.body.order);
+  const total = db.prepare('SELECT COUNT(*) n FROM sections WHERE session_code = ?').get(s.code).n;
+  const target = req.body.direction === 'up' ? cur - 1 : cur + 1;
+  if (!(cur >= 1 && cur <= total && target >= 1 && target <= total)) {
+    return res.status(400).json({ error: 'Cannot move round in that direction.' });
+  }
+  const swap = (table, col) => {
+    db.prepare(`UPDATE ${table} SET ${col} = -1 WHERE session_code = ? AND ${col} = ?`).run(s.code, cur);
+    db.prepare(`UPDATE ${table} SET ${col} = ? WHERE session_code = ? AND ${col} = ?`).run(cur, s.code, target);
+    db.prepare(`UPDATE ${table} SET ${col} = ? WHERE session_code = ? AND ${col} = -1`).run(target, s.code);
+  };
+  const tx = db.transaction(() => {
+    swap('sections', 'section_order');
+    swap('submissions', 'section_order');
+    swap('votes', 'section_order');
+    swap('notes', 'section_order');
+    // Keep the facilitator pointed at the same content if it was one of the two.
+    if (s.current_section === cur) db.prepare('UPDATE sessions SET current_section = ? WHERE code = ?').run(target, s.code);
+    else if (s.current_section === target) db.prepare('UPDATE sessions SET current_section = ? WHERE code = ?').run(cur, s.code);
+  });
+  tx();
+  logActivity({ session_code: s.code, action: 'reorder_section', prev_value: cur, new_value: target });
   ok(res, s.code, req);
 });
 
