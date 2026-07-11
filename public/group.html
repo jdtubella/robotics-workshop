@@ -127,7 +127,7 @@ function renderSection(state, group, me) {
 
   const secChanged = currentSectionOrder !== sec.order;
   currentSectionOrder = sec.order;
-  el('secLabel').textContent = `SECTION ${sec.order}`;
+  el('secLabel').textContent = `ROUND ${sec.order}`;
   el('secTitle').textContent = sec.title;
   el('secObjective').textContent = sec.objective || '';
   el('secPrompt').textContent = sec.mainPrompt || '';

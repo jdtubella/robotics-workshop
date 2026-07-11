@@ -53,7 +53,7 @@
       <div class="col grow" style="flex:2;">
         <div class="panel">
           <div class="spread">
-            <div><div class="label">SECTION</div><h2 id="secTitle">—</h2></div>
+            <div><div class="label">CURRENT ROUND</div><h2 id="secTitle">—</h2></div>
             <div class="btn-group">
               <button id="prevSec">◀ Prev</button>
               <span class="pill" id="secPill"><span id="secNum">0</span>/<span id="secTotal">0</span></span>
@@ -194,12 +194,35 @@ function onState(s) {
   el('flowState').textContent = `Submissions: ${s.session.submissionStatus.toUpperCase()} · Voting: ${s.session.votingStatus.toUpperCase()}`;
 }
 
-const STAGES = [['welcome','Welcome'],['roster','Roster'],['robot','Robot'],['groups','Groups'],['section','Section'],['discussion','Discuss'],['final','Final']];
+// Pre- and post-round stages that don't depend on a specific section.
+const PRE_STAGES = [['welcome','Welcome'],['roster','Roster'],['robot','Robot'],['groups','Groups']];
+let lastStageSig = null;
 function renderStageNav(s) {
+  // Only rebuild when the nav's inputs change, so polling never swaps a button
+  // out from under a click.
+  const sig = JSON.stringify([s.session.status, s.session.currentSection, s.sections.map((x) => x.title)]);
+  if (sig === lastStageSig) return;
+  lastStageSig = sig;
+
   const nav = el('stageNav'); clear(nav);
-  for (const [key,label] of STAGES) {
-    nav.appendChild(h('button', { class:'btn small' + (s.session.status===key?' active':''), onclick:() => post(`/session/${WS.session}/status`, {status:key}) }, label));
+  const mk = (label, active, onclick) =>
+    nav.appendChild(h('button', { class: 'btn small' + (active ? ' active' : ''), onclick }, label));
+
+  for (const [key, label] of PRE_STAGES)
+    mk(label, s.session.status === key, () => post(`/session/${WS.session}/status`, { status: key }));
+
+  // One explicit step per round, in order. Selecting a round opens its section
+  // workspace (a group being "selected" during a round shows as discussion).
+  const inRound = s.session.status === 'section' || s.session.status === 'discussion';
+  for (const sec of s.sections) {
+    mk(
+      `R${sec.section_order} · ${sec.title}`,
+      inRound && s.session.currentSection === sec.section_order,
+      () => post(`/session/${WS.session}/section`, { set: sec.section_order })
+    );
   }
+
+  mk('Final', s.session.status === 'final', () => post(`/session/${WS.session}/status`, { status: 'final' }));
 }
 
 function renderSection(s) {

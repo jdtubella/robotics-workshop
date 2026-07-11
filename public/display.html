@@ -226,7 +226,7 @@ function section(state) {
   return h('div', { class:'col grow' }, [
     head(state, ensureTimer()),
     h('div', { class:'spread' }, [
-      h('div', {}, [ h('div', { class:'label', text:`SECTION ${sec.order||''}` }), h('h1', { text: sec.title || '—' }) ]),
+      h('div', {}, [ h('div', { class:'label', text:`ROUND ${sec.order||''}` }), h('h1', { text: sec.title || '—' }) ]),
       sec.image ? h('img', { src: sec.image, style:'height:80px;' }) : null,
     ]),
     h('p', { class:'accent', style:'font-size:1.3rem; max-width:60ch;', text: sec.mainPrompt || '' }),
@@ -244,7 +244,7 @@ function discussion(state) {
   const fields = sub && sub.response ? (sec.fields||[]).filter(f => sub.response[f.key]) : [];
   return h('div', { class:'col grow selected-pop' }, [
     head(state),
-    h('div', { class:'label', text:`NOW PRESENTING — SECTION ${sec.order||''}` }),
+    h('div', { class:'label', text:`NOW PRESENTING — ROUND ${sec.order||''}` }),
     h('h1', { class:'display', style:'font-size:4rem;', text: g ? g.name : 'GROUP' }),
     g ? h('div', { class:'wrap-cols' }, g.memberIds.map(id => { const p=pById.get(id); return p? h('span',{class:'chip',text: state.session.publicNames? p.name : 'Member'}):null; }).filter(Boolean)) : null,
     sub && sub.summary ? h('div', { class:'panel hud', style:'margin-top:16px;' }, [
