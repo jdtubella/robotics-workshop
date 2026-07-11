@@ -161,9 +161,10 @@ function robot(state) {
         r.tagline ? h('p', { class:'accent', style:'font-size:1.2rem;', text: r.tagline }) : null,
         r.task ? h('p', { class:'dim', style:'font-size:1.05rem;' }, [ h('b',{text:'Task: '}), r.task ]) : null,
         r.environment ? h('p', { class:'dim', style:'font-size:1.05rem;' }, [ h('b',{text:'Environment: '}), r.environment ]) : null,
-        list('KNOWN ASSUMPTIONS', r.assumptions),
-        list('KNOWN CONSTRAINTS', r.constraints),
-        list('OPEN QUESTIONS', r.unresolvedQuestions),
+        list('HOW IT WORKS', r.process),
+        list('WHAT WE ALREADY KNOW', r.assumptions),
+        list('OPERATING LIMITS', r.constraints),
+        list('YOUR JOB IS TO DEFINE', r.unresolvedQuestions),
       ]),
     ]),
   ]);
@@ -198,12 +199,11 @@ function groups(state) {
 
 function section(state) {
   const sec = state.currentSection || {};
-  const statusColor = { not_started:'idle', working:'working', submitted:'submitted', selected:'selected' };
-  const grid = h('div', { class:'grid auto', style:'margin-top:16px;' });
+  const grid = h('div', { class:'grid auto', style:'margin-top:14px;' });
   for (const g of state.groups) {
-    grid.appendChild(h('div', { class:`panel group-card st-${g.status}` }, [
+    grid.appendChild(h('div', { class:`panel group-card st-${g.status}`, style:'padding:10px 14px;' }, [
       h('div', { class:'spread' }, [
-        h('h3', { text: g.name }),
+        h('h3', { style:'font-size:0.95rem;', text: g.name }),
         h('span', { class:`pill st-${g.status}` }, [ h('span',{class:'dot'}), g.status.replace('_',' ') ]),
       ]),
     ]));
@@ -223,14 +223,25 @@ function section(state) {
       ]))),
     ]);
   }
+  const discuss = (sec.discuss && sec.discuss.length)
+    ? h('div', { style:'margin-top:14px;' }, [
+        h('div', { class:'label', text:'DISCUSS' }),
+        h('div', { class:'grid cols-2', style:'gap:4px 32px; margin-top:6px;' },
+          sec.discuss.map((q) => h('div', { class:'dim', style:'font-size:0.95rem;', text: '· ' + q }))),
+      ])
+    : null;
   return h('div', { class:'col grow' }, [
     head(state, ensureTimer()),
-    h('div', { class:'spread' }, [
-      h('div', {}, [ h('div', { class:'label', text:`ROUND ${sec.order||''}` }), h('h1', { text: sec.title || '—' }) ]),
-      sec.image ? h('img', { src: sec.image, style:'height:80px;' }) : null,
+    h('div', { class:'row', style:'gap:36px; align-items:flex-start;' }, [
+      h('div', { class:'grow' }, [
+        h('div', { class:'label', text:`ROUND ${sec.order||''}` }),
+        h('h1', { text: sec.title || '—' }),
+        h('p', { class:'accent', style:'font-size:1.25rem; max-width:52ch; margin-top:6px;', text: sec.mainPrompt || '' }),
+        h('p', { class:'dim', style:'font-size:0.98rem; max-width:62ch;', text: sec.scenario || sec.objective || '' }),
+      ]),
+      sec.image ? h('img', { class:'robot-img', src: sec.image, style:'width:32vw; max-height:34vh;' }) : null,
     ]),
-    h('p', { class:'accent', style:'font-size:1.3rem; max-width:60ch;', text: sec.mainPrompt || '' }),
-    h('p', { class:'dim', text: sec.objective || '' }),
+    discuss,
     grid,
     feed,
   ]);

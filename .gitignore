@@ -3,3 +3,6 @@ data/
 exports/
 *.log
 .DS_Store
+
+# User source uploads (originals kept locally; clean copies live in assets/robot/)
+assets/Robot Assets/

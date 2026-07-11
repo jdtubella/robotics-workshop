@@ -32,6 +32,13 @@
       <p class="dim" id="secObjective" style="font-size:0.9rem;"></p>
       <div class="disclaimer" id="secPrompt"></div>
 
+      <p class="dim" id="secScenario" style="font-size:0.85rem;"></p>
+
+      <div id="discussBoxTop" class="hidden">
+        <div class="label">DISCUSS</div>
+        <ul id="secDiscuss" class="dim" style="font-size:0.88rem; margin:6px 0 0; padding-left:18px;"></ul>
+      </div>
+
       <div id="thinking" class="banner hidden" style="margin-top:6px;"></div>
 
       <div id="fields" class="col" style="margin-top:8px;"></div>
@@ -131,6 +138,14 @@ function renderSection(state, group, me) {
   el('secTitle').textContent = sec.title;
   el('secObjective').textContent = sec.objective || '';
   el('secPrompt').textContent = sec.mainPrompt || '';
+  el('secScenario').textContent = sec.scenario || '';
+
+  const dbox = el('discussBoxTop'), dlist = el('secDiscuss');
+  if (sec.discuss && sec.discuss.length) {
+    dbox.classList.remove('hidden');
+    clear(dlist);
+    for (const q of sec.discuss) dlist.appendChild(h('li', { text: q }));
+  } else dbox.classList.add('hidden');
 
   const think = el('thinking');
   const sil = state.config && state.config.defaults && state.config.defaults.silentThinkingSeconds;

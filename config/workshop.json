@@ -1,32 +1,48 @@
 {
-  "workshopTitle": "Construction Robotics PRD Workshop",
-  "purpose": "A one-hour stakeholder exercise to define preliminary requirements for a fictional construction robot.",
+  "workshopTitle": "Autonomous Hydrovac PRD Workshop",
+  "purpose": "A one-hour stakeholder exercise to define preliminary requirements for a fictional autonomous utility-daylighting hydrovac robot.",
   "disclaimer": "This workshop is designed to generate stakeholder intelligence that may inform a Product Requirements Document. It is not intended to produce a complete, validated, or approved PRD in one hour.",
 
   "robot": {
-    "_note": "PLACEHOLDER — the facilitator will define the fictional robot and provide images later. Replace every value below and drop image files into assets/robot/. Nothing else in the app needs to change.",
-    "name": "[ROBOT NAME — TBD]",
-    "tagline": "[One-line description of what the robot does — TBD]",
+    "name": "Autonomous Utility Daylighting Hydrovac",
+    "tagline": "SUB-LOGIX · Hydro-Excavation Leaders",
     "images": [
-      "/assets/robot/robot-placeholder.svg"
+      "/assets/robot/robot.png",
+      "/assets/robot/round-4.png"
     ],
-    "task": "[The construction activity the robot performs — TBD]",
-    "environment": "[The preliminary operating environment — TBD]",
-    "autonomyLevel": "[Expected level of autonomy — TBD]",
-    "consumables": "[Materials, tools, or consumables it requires — TBD]",
+    "task": "The robot receives a list of reported utility locations and verifies each one — it travels to the location, confirms its position, establishes a safe work area, uses pressurized water and vacuum excavation to expose the utility, documents what it finds, reports the verified location, and moves to its next assignment.",
+    "environment": "An active construction site with buried electrical, gas, water, data, and communication utilities. Utility records or surface markings have already been provided.",
+    "autonomyLevel": "Autonomous operation with human intervention and teleoperation available when it encounters unknown or unsafe conditions.",
+    "consumables": "Onboard water for excavation, onboard debris/spoils storage, and fuel or battery capacity.",
+    "process": [
+      "Travels to the assigned location",
+      "Confirms its position",
+      "Establishes a safe work area",
+      "Uses water and vacuum excavation to expose the utility",
+      "Documents what it finds",
+      "Reports the verified location",
+      "Moves to its next assignment"
+    ],
     "assumptions": [
-      "[Fixed operating assumption #1 — TBD]",
-      "[Fixed operating assumption #2 — TBD]",
-      "[Fixed operating assumption #3 — TBD]"
+      "The robot works on an active construction site",
+      "Utility records or surface markings have already been provided",
+      "The robot receives a list of locations to investigate",
+      "It carries water and stores excavated material onboard",
+      "It must document the utility before leaving",
+      "A person can intervene when it encounters an unknown condition"
     ],
     "constraints": [
-      "[Known constraint #1 — TBD]",
-      "[Known constraint #2 — TBD]"
+      "Limited water",
+      "Limited fuel or battery capacity",
+      "Limited vacuum hose reach",
+      "Limited debris storage",
+      "Limited operating time"
     ],
     "unresolvedQuestions": [
-      "[Intentionally unresolved question #1 — TBD]",
-      "[Intentionally unresolved question #2 — TBD]",
-      "[Intentionally unresolved question #3 — TBD]"
+      "What must it do?",
+      "How should it work?",
+      "How will people interact with it?",
+      "How should it operate and fail safely?"
     ]
   },
 
@@ -46,70 +62,81 @@
   "sections": [
     {
       "key": "users_capabilities",
-      "title": "Users and Capabilities",
+      "title": "Users & Robot Capabilities",
       "order": 1,
-      "objective": "Define what the robot must accomplish, who will use it, and the conditions under which it must operate.",
+      "objective": "Define what the robot must do and who will use it.",
       "mainPrompt": "What must this robot accomplish, for whom, and under what jobsite conditions?",
-      "image": "/assets/robot/section-1.svg",
+      "image": "/assets/robot/round-1.png",
       "defaultTimerSeconds": 660,
+      "scenario": "The robot has been assigned several reported utility locations on an active construction site. At each location it must carefully expose the utility and document its actual location, depth, direction, apparent type, and visible condition. It may use cameras, positioning systems, utility-detection sensors, a robotic boom, pressurized water, a vacuum excavation system, and remote monitoring or teleoperation.",
+      "discuss": [
+        "Who is the primary user?",
+        "What must the robot be able to do?",
+        "What decisions can it make autonomously?",
+        "What decisions still require human approval?",
+        "What training should an operator need?",
+        "What conditions should cause the robot to stop?",
+        "What information must it provide after completing the work?"
+      ],
       "fields": [
         { "key": "primary_user", "label": "Primary user" },
-        { "key": "primary_problem", "label": "Primary problem being solved" },
-        { "key": "required_capabilities", "label": "Required robot capabilities" },
-        { "key": "method", "label": "Expected method of performing the work" },
-        { "key": "operator_skill", "label": "Operator skill level" },
-        { "key": "required_training", "label": "Required training" },
-        { "key": "environmental_conditions", "label": "Environmental conditions" },
-        { "key": "jobsite_constraints", "label": "Jobsite constraints" },
-        { "key": "most_important", "label": "Most important requirement" }
+        { "key": "capabilities", "label": "Three essential robot capabilities" },
+        { "key": "limitation", "label": "One major operating limitation" },
+        { "key": "most_important", "label": "Most important product requirement" }
       ]
     },
     {
       "key": "workflow_deployment",
-      "title": "Workflow and Deployment",
+      "title": "Workflow & Jobsite Deployment",
       "order": 2,
-      "objective": "Define how the robot enters, operates within, and exits the construction workflow.",
+      "objective": "Define how the robot fits into the complete construction workflow.",
       "mainPrompt": "What must happen before, during, and after the robot performs its work?",
-      "image": "/assets/robot/section-2.svg",
+      "image": "/assets/robot/round-2.png",
       "defaultTimerSeconds": 780,
+      "scenario": "The robot receives a mission with several utility locations that must be verified before construction can continue. At each it must travel to the work area, confirm the location, check surrounding conditions, establish a safe work zone, position equipment, expose and document the utility, protect or close the opening, report the result, and move on. Mid-mission it discovers: a location blocked by stored materials, a location with poor connectivity, a utility not found at the expected depth, an unexpected exposed utility, a full debris tank, and another crew waiting on results.",
+      "discuss": [
+        "How is a mission created and approved?",
+        "What must be ready before the robot arrives?",
+        "How should it move through an active site?",
+        "What can it do when connectivity is lost?",
+        "When should teleoperation be required?",
+        "How are water and excavated material managed?",
+        "What happens when the utility cannot be found?",
+        "How are results delivered to downstream crews?"
+      ],
       "fields": [
-        { "key": "mobilization", "label": "Mobilization and setup" },
-        { "key": "software_setup", "label": "Software setup" },
-        { "key": "mission_planning", "label": "Mission planning" },
-        { "key": "connectivity", "label": "Connectivity" },
-        { "key": "poor_connectivity", "label": "Poor-connectivity behavior" },
-        { "key": "teleoperation", "label": "Teleoperation and intervention" },
-        { "key": "telematics", "label": "Telematics and reporting" },
-        { "key": "replenishment", "label": "Material or consumable replenishment" },
-        { "key": "worker_interaction", "label": "Worker interaction" },
-        { "key": "shutdown", "label": "Shutdown and demobilization" },
-        { "key": "recovery", "label": "Recovery after interruption" },
-        { "key": "preceding_work", "label": "Preceding work dependencies" },
-        { "key": "downstream", "label": "Downstream implications" },
+        { "key": "workflow", "label": "Normal operating workflow" },
+        { "key": "jobsite_setup", "label": "Required jobsite setup" },
+        { "key": "comms_plan", "label": "Communication & intervention plan" },
+        { "key": "critical_failure", "label": "One critical workflow failure" },
         { "key": "most_important", "label": "Most important workflow requirement" }
       ]
     },
     {
       "key": "safety_failure",
-      "title": "Safety, Failure, and Human Interaction",
+      "title": "Safety, Failure & Human Interaction",
       "order": 3,
-      "objective": "Define how the system prevents harm, behaves during failure, interacts with people and equipment, and fits within company procedures.",
+      "objective": "Define how the robot should operate, interact, stop, and recover safely.",
       "mainPrompt": "How should the system prevent harm, stop safely, and recover when assumptions fail?",
-      "image": "/assets/robot/section-3.svg",
+      "image": "/assets/robot/round-3.png",
       "defaultTimerSeconds": 780,
+      "scenario": "The robot combines several hazards: a large autonomous vehicle, a moving robotic boom, pressurized water, powerful vacuum equipment, open excavations, nearby workers and equipment, and live electrical, gas, water, data, and communication utilities. A successful failure doesn't mean nothing went wrong — it means the robot recognizes it cannot safely continue, stops in a predictable condition, protects workers and the utility, communicates what happened, prevents an uncontrolled restart, and waits for an authorized person to recover it.",
+      "discuss": [
+        "What are the three greatest hazards?",
+        "Who has the right of way?",
+        "Who can stop the robot?",
+        "What happens when communication is lost?",
+        "What happens when a critical sensor fails?",
+        "How should the robot respond to an unknown utility?",
+        "What requires human inspection before restart?",
+        "What company procedures must be built into its workflow?"
+      ],
       "fields": [
-        { "key": "human_interactions", "label": "Expected human interactions" },
-        { "key": "hazards", "label": "Foreseeable hazards" },
-        { "key": "engineering_controls", "label": "Engineering controls" },
-        { "key": "administrative_controls", "label": "Administrative controls" },
-        { "key": "sop_integration", "label": "Required SOP integration" },
-        { "key": "right_of_way", "label": "Right-of-way rules" },
-        { "key": "safe_stop", "label": "Safe-stop behavior" },
-        { "key": "emergency_stop", "label": "Emergency stop behavior" },
-        { "key": "loss_of_connectivity", "label": "Loss-of-connectivity response" },
-        { "key": "recovery_process", "label": "Recovery process" },
-        { "key": "successful_failure", "label": "Successful failure" },
-        { "key": "most_important", "label": "Most important safety requirement" }
+        { "key": "hazards", "label": "Three primary hazards" },
+        { "key": "safety_controls", "label": "Required safety controls" },
+        { "key": "interaction_rules", "label": "Human–robot interaction rules" },
+        { "key": "successful_failure", "label": "Your definition of a successful failure" },
+        { "key": "never_autonomous", "label": "One task the robot must never perform autonomously" }
       ]
     }
   ],

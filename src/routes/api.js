@@ -86,6 +86,11 @@ function buildState(code, { participantId } = {}) {
   const currentSectionRow = s.current_section
     ? db.prepare('SELECT * FROM sections WHERE session_code = ? AND section_order = ?').get(code, s.current_section)
     : null;
+  // Slide content (scenario + discussion prompts) is read live from config by
+  // section key, so editing workshop.json updates the slides without reseeding.
+  const cfgSection = cfg && Array.isArray(cfg.sections) && currentSectionRow
+    ? cfg.sections.find((x) => x.key === currentSectionRow.key)
+    : null;
   const currentSection = currentSectionRow
     ? {
         order: currentSectionRow.section_order,
@@ -96,6 +101,8 @@ function buildState(code, { participantId } = {}) {
         image: currentSectionRow.image,
         defaultTimer: currentSectionRow.default_timer,
         fields: JSON.parse(currentSectionRow.fields_json || '[]'),
+        scenario: cfgSection ? cfgSection.scenario || '' : '',
+        discuss: cfgSection && Array.isArray(cfgSection.discuss) ? cfgSection.discuss : [],
       }
     : null;
 
