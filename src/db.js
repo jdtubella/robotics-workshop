@@ -129,6 +129,15 @@ CREATE INDEX IF NOT EXISTS idx_votes_session ON votes(session_code, section_orde
 CREATE INDEX IF NOT EXISTS idx_notes_session ON notes(session_code, section_order);
 `);
 
+// --- lightweight migrations (add columns to existing DBs) -------------------
+function ensureColumn(table, column, decl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
+}
+ensureColumn('sessions', 'stage_order', 'TEXT'); // JSON array of facilitator flow steps
+
 function logActivity({ session_code, device, actor, action, prev_value, new_value }) {
   db.prepare(
     `INSERT INTO activity_log (session_code, device, actor, action, prev_value, new_value, created_at)

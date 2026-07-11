@@ -4,8 +4,13 @@
 <link rel="stylesheet" href="/css/theme.css">
 <style>
   .deck { max-width: 1100px; margin: 0 auto; padding: 16px; }
-  .stage-nav { display:flex; flex-wrap:wrap; gap:6px; }
+  .stage-nav { display:flex; flex-wrap:wrap; gap:8px; }
   .stage-nav .btn.active { background: var(--accent); border-color: var(--accent); color:#120a06; }
+  .stage-chip { display:inline-flex; align-items:stretch; gap:2px; }
+  .stage-move { padding:0 5px; min-width:0; font-family:var(--mono); background:transparent;
+    border:1px solid var(--line); color:var(--text-mute); font-size:0.85rem; line-height:1; letter-spacing:0; }
+  .stage-move:hover:not(:disabled) { color:var(--accent); border-color:var(--accent); }
+  .stage-move:disabled { opacity:0.2; cursor:default; }
   .mini { font-size:0.7rem; }
   .plist .row-item { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
   .viewonly { opacity:0.5; pointer-events:none; }
@@ -61,13 +66,6 @@
             </div>
           </div>
           <p class="dim mini" id="secPrompt"></p>
-        </div>
-
-        <!-- Round order -->
-        <div class="panel col">
-          <div class="label">ROUND ORDER</div>
-          <p class="mini mute">Reorder the rounds before you run them.</p>
-          <div id="roundOrder" class="col" style="gap:4px;"></div>
         </div>
 
         <!-- Submission + voting flow -->
@@ -191,7 +189,6 @@ function onState(s) {
 
   renderStageNav(s);
   renderSection(s);
-  renderRoundOrder(s);
   renderGroups(s);
   renderMonitor(s);
   renderParticipants(s);
@@ -202,35 +199,44 @@ function onState(s) {
   el('flowState').textContent = `Submissions: ${s.session.submissionStatus.toUpperCase()} · Voting: ${s.session.votingStatus.toUpperCase()}`;
 }
 
-// Pre- and post-round stages that don't depend on a specific section.
-const PRE_STAGES = [['welcome','Welcome'],['roster','Roster'],['robot','Robot'],['groups','Groups']];
+// Human labels for the fixed (non-round) stages.
+const STAGE_LABELS = { welcome:'Welcome', roster:'Roster', robot:'Robot', groups:'Groups', final:'Final' };
 let lastStageSig = null;
 function renderStageNav(s) {
-  // Only rebuild when the nav's inputs change, so polling never swaps a button
-  // out from under a click.
-  const sig = JSON.stringify([s.session.status, s.session.currentSection, s.sections.map((x) => x.title)]);
+  // Rebuild the bar from the persisted stage order. Guarded so polling never
+  // swaps a chip out from under a click.
+  const order = s.session.stageOrder || [];
+  const secByKey = indexBy(s.sections, 'key');
+  const sig = JSON.stringify([s.session.status, s.session.currentSection, order, s.sections.map((x) => x.section_order + x.title)]);
   if (sig === lastStageSig) return;
   lastStageSig = sig;
 
   const nav = el('stageNav'); clear(nav);
-  const mk = (label, active, onclick) =>
-    nav.appendChild(h('button', { class: 'btn small' + (active ? ' active' : ''), onclick }, label));
-
-  for (const [key, label] of PRE_STAGES)
-    mk(label, s.session.status === key, () => post(`/session/${WS.session}/status`, { status: key }));
-
-  // One explicit step per round, in order. Selecting a round opens its section
-  // workspace (a group being "selected" during a round shows as discussion).
   const inRound = s.session.status === 'section' || s.session.status === 'discussion';
-  for (const sec of s.sections) {
-    mk(
-      `R${sec.section_order} · ${sec.title}`,
-      inRound && s.session.currentSection === sec.section_order,
-      () => post(`/session/${WS.session}/section`, { set: sec.section_order })
-    );
-  }
 
-  mk('Final', s.session.status === 'final', () => post(`/session/${WS.session}/status`, { status: 'final' }));
+  order.forEach((token, idx) => {
+    let label, active, navigate;
+    if (token.startsWith('sec:')) {
+      const sec = secByKey.get(token.slice(4));
+      if (!sec) return;
+      label = `R${sec.section_order} · ${sec.title}`;
+      active = inRound && s.session.currentSection === sec.section_order;
+      navigate = () => post(`/session/${WS.session}/section`, { set: sec.section_order });
+    } else {
+      label = STAGE_LABELS[token] || token;
+      active = s.session.status === token;
+      navigate = () => post(`/session/${WS.session}/status`, { status: token });
+    }
+    // Chip = reorder-left · nav button · reorder-right
+    const chip = h('span', { class: 'stage-chip' }, [
+      h('button', { class: 'stage-move', title: 'Move left', disabled: idx === 0,
+        onclick: () => post(`/session/${WS.session}/stage/reorder`, { token, direction: 'left' }) }, '‹'),
+      h('button', { class: 'btn small' + (active ? ' active' : ''), onclick: navigate }, label),
+      h('button', { class: 'stage-move', title: 'Move right', disabled: idx === order.length - 1,
+        onclick: () => post(`/session/${WS.session}/stage/reorder`, { token, direction: 'right' }) }, '›'),
+    ]);
+    nav.appendChild(chip);
+  });
 }
 
 function renderSection(s) {
@@ -238,21 +244,6 @@ function renderSection(s) {
   el('secNum').textContent = s.session.currentSection || 0;
   el('secTitle').textContent = s.currentSection ? s.currentSection.title : '(none)';
   el('secPrompt').textContent = s.currentSection ? s.currentSection.mainPrompt : '';
-}
-
-function renderRoundOrder(s) {
-  const box = el('roundOrder'); clear(box);
-  s.sections.forEach((sec, i) => {
-    box.appendChild(h('div', { class:'row-item mini' }, [
-      h('span', { class:'mono mute', text:'R' + sec.section_order }),
-      h('span', { text: sec.title }),
-      h('span', { style:'margin-left:auto;' }),
-      h('button', { class:'small ghost', disabled: i === 0,
-        onclick:() => post(`/session/${WS.session}/sections/reorder`, { order: sec.section_order, direction:'up' }) }, '↑'),
-      h('button', { class:'small ghost', disabled: i === s.sections.length - 1,
-        onclick:() => post(`/session/${WS.session}/sections/reorder`, { order: sec.section_order, direction:'down' }) }, '↓'),
-    ]));
-  });
 }
 
 function renderGroups(s) {

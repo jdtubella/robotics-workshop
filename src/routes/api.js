@@ -72,6 +72,69 @@ function groupMembers(code) {
   return { rows, map };
 }
 
+// ---------- facilitator stage order -----------------------------------------
+// The stage bar is a reorderable list of flow steps. Fixed stages are plain
+// tokens; each round is "sec:<key>" so it tracks its content, not a position.
+const FIXED_STAGE_TOKENS = ['welcome', 'roster', 'robot', 'groups', 'final'];
+
+function defaultStageOrder(code) {
+  const secs = db.prepare('SELECT key FROM sections WHERE session_code = ? ORDER BY section_order').all(code);
+  return ['welcome', 'roster', 'groups', 'robot', ...secs.map((x) => 'sec:' + x.key), 'final'];
+}
+
+// Parse stored order, self-healing against config changes (drop removed rounds,
+// append new ones before "final").
+function stageOrder(s) {
+  const code = s.code;
+  const validRoundKeys = new Set(
+    db.prepare('SELECT key FROM sections WHERE session_code = ?').all(code).map((x) => x.key)
+  );
+  let order;
+  try { order = JSON.parse(s.stage_order); } catch (_) { order = null; }
+  if (!Array.isArray(order) || !order.length) return defaultStageOrder(code);
+
+  order = order.filter((t) => FIXED_STAGE_TOKENS.includes(t) || (t.startsWith('sec:') && validRoundKeys.has(t.slice(4))));
+  const present = new Set(order);
+  const missingRounds = [...validRoundKeys].map((k) => 'sec:' + k).filter((t) => !present.has(t));
+  if (missingRounds.length) {
+    const fi = order.indexOf('final');
+    if (fi >= 0) order.splice(fi, 0, ...missingRounds);
+    else order.push(...missingRounds);
+  }
+  for (const t of FIXED_STAGE_TOKENS) if (!present.has(t)) order.push(t); // safety
+  return order;
+}
+
+// Renumber sections (and their submissions/votes/notes) so section_order matches
+// the order of round tokens in the stage list. Data moves with its content.
+function reconcileSectionOrder(code, order) {
+  const roundKeys = order.filter((t) => t.startsWith('sec:')).map((t) => t.slice(4));
+  const sections = db.prepare('SELECT section_order, key FROM sections WHERE session_code = ?').all(code);
+  const desiredByKey = new Map(roundKeys.map((k, i) => [k, i + 1]));
+  if (sections.every((s) => desiredByKey.get(s.key) === s.section_order)) return;
+
+  const OFF = 1000;
+  const session = getSession(code);
+  const tables = ['sections', 'submissions', 'votes', 'notes'];
+  const tx = db.transaction(() => {
+    for (const t of tables) db.prepare(`UPDATE ${t} SET section_order = section_order + ${OFF} WHERE session_code = ?`).run(code);
+    for (const s of sections) {
+      const des = desiredByKey.get(s.key);
+      if (des == null) continue;
+      db.prepare('UPDATE sections SET section_order = ? WHERE session_code = ? AND key = ?').run(des, code, s.key);
+      for (const t of ['submissions', 'votes', 'notes']) {
+        db.prepare(`UPDATE ${t} SET section_order = ? WHERE session_code = ? AND section_order = ?`).run(des, code, s.section_order + OFF);
+      }
+    }
+    if (session.current_section) {
+      const cur = sections.find((s) => s.section_order === session.current_section);
+      const des = cur && desiredByKey.get(cur.key);
+      if (des != null) db.prepare('UPDATE sessions SET current_section = ? WHERE code = ?').run(des, code);
+    }
+  });
+  tx();
+}
+
 // Full state snapshot consumed by all four views (polled).
 function buildState(code, { participantId } = {}) {
   const s = getSession(code);
@@ -187,6 +250,7 @@ function buildState(code, { participantId } = {}) {
       controlDeviceId: s.control_device_id,
       timer: timerRemaining(s),
       timerDuration: s.timer_duration,
+      stageOrder: stageOrder(s),
     },
     sections,
     currentSection,
@@ -258,6 +322,7 @@ router.post('/sessions', (req, res) => {
       sec.defaultTimerSeconds || (cfg.defaults && cfg.defaults.defaultSectionTimerSeconds) || 600
     );
   });
+  db.prepare('UPDATE sessions SET stage_order = ? WHERE code = ?').run(JSON.stringify(defaultStageOrder(code)), code);
   logActivity({ session_code: code, action: 'session_created' });
   res.json({ code });
 });
@@ -311,32 +376,19 @@ router.post('/session/:code/section', (req, res) => {
   ok(res, s.code, req);
 });
 
-// Reorder a round by swapping it with its neighbour. Any submissions/votes/notes
-// already tied to those positions move with them, so it's safe before or during setup.
-router.post('/session/:code/sections/reorder', (req, res) => {
+// Reorder the facilitator flow by swapping a stage with its neighbour. If two
+// rounds swap, their content (submissions/votes/notes) moves with them.
+router.post('/session/:code/stage/reorder', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return;
-  const cur = Number(req.body.order);
-  const total = db.prepare('SELECT COUNT(*) n FROM sections WHERE session_code = ?').get(s.code).n;
-  const target = req.body.direction === 'up' ? cur - 1 : cur + 1;
-  if (!(cur >= 1 && cur <= total && target >= 1 && target <= total)) {
-    return res.status(400).json({ error: 'Cannot move round in that direction.' });
-  }
-  const swap = (table, col) => {
-    db.prepare(`UPDATE ${table} SET ${col} = -1 WHERE session_code = ? AND ${col} = ?`).run(s.code, cur);
-    db.prepare(`UPDATE ${table} SET ${col} = ? WHERE session_code = ? AND ${col} = ?`).run(cur, s.code, target);
-    db.prepare(`UPDATE ${table} SET ${col} = ? WHERE session_code = ? AND ${col} = -1`).run(target, s.code);
-  };
-  const tx = db.transaction(() => {
-    swap('sections', 'section_order');
-    swap('submissions', 'section_order');
-    swap('votes', 'section_order');
-    swap('notes', 'section_order');
-    // Keep the facilitator pointed at the same content if it was one of the two.
-    if (s.current_section === cur) db.prepare('UPDATE sessions SET current_section = ? WHERE code = ?').run(target, s.code);
-    else if (s.current_section === target) db.prepare('UPDATE sessions SET current_section = ? WHERE code = ?').run(cur, s.code);
-  });
-  tx();
-  logActivity({ session_code: s.code, action: 'reorder_section', prev_value: cur, new_value: target });
+  const { token, direction } = req.body;
+  const order = stageOrder(s);
+  const i = order.indexOf(token);
+  const j = direction === 'left' ? i - 1 : i + 1;
+  if (i < 0 || j < 0 || j >= order.length) return res.status(400).json({ error: 'Cannot move that step.' });
+  [order[i], order[j]] = [order[j], order[i]];
+  db.prepare('UPDATE sessions SET stage_order = ? WHERE code = ?').run(JSON.stringify(order), s.code);
+  reconcileSectionOrder(s.code, order);
+  logActivity({ session_code: s.code, action: 'stage_reorder', new_value: `${token}:${direction}` });
   ok(res, s.code, req);
 });
 
