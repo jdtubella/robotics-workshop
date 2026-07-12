@@ -15,6 +15,7 @@
   .plist .row-item { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
   .viewonly { opacity:0.5; pointer-events:none; }
   /* Simulate / testing buttons — dashed blue so they read as non-production. */
+  #editToggle.active { background:var(--sel); border-color:var(--sel); color:#04121a; }
   .sim { background:transparent; border:1px dashed var(--sel); color:var(--sel); }
   .sim:hover { background:rgba(56,189,248,0.12); border-color:var(--sel); color:#bfe9ff; }
 </style>
@@ -23,15 +24,26 @@
   <div class="brand"><span class="slashes">//</span> FACILITATOR</div>
   <div class="row" style="gap:12px; align-items:center;">
     <span class="conn" id="conn"><span class="dot"></span></span>
+    <button class="small" id="editToggle">✎ Edit Display</button>
     <span class="pill" id="controlPill"><span class="dot"></span><span id="controlLbl">CONTROL</span></span>
     <button class="small" id="takeControl">Take Control</button>
   </div>
 </div>
 
+<input type="file" id="imgFile" accept="image/*" style="display:none;">
+
 <div class="deck col" id="deck">
   <div id="loading" class="panel">Loading facilitator deck…</div>
 
   <div id="main" class="hidden col">
+
+    <!-- Live content editor (Edit Display mode) -->
+    <div id="editPanel" class="panel hud hidden" style="border-color:var(--sel);">
+      <div class="spread"><div class="label" style="color:var(--sel);">✎ EDIT DISPLAY — <span id="editStage"></span></div>
+        <span class="mini mute">Changes appear on the room display within ~3s.</span></div>
+      <div id="editBody" class="col" style="margin-top:10px;"></div>
+    </div>
+
 
     <!-- Stage + timer -->
     <div class="panel hud">
@@ -158,6 +170,7 @@ WS.init();
 // Testing aid: set to false (or delete the .sim buttons) to hide simulation.
 const SIMULATE = true;
 let countdown, state = null, hasControl = false, reelBusy = false;
+let editMode = false, lastEditorSig = null, uploadCb = null;
 
 function boot() {
   if (!WS.session) { el('loading').textContent = 'Missing session code.'; return; }
@@ -183,6 +196,7 @@ function onState(s) {
   el('takeControl').classList.toggle('hidden', hasControl);
 
   renderStageNav(s);
+  renderEditor(s);
   renderSection(s);
   renderPresentChecklist(s);
   renderGroups(s);
@@ -239,6 +253,75 @@ function renderSection(s) {
   el('secNum').textContent = s.session.currentSection || 0;
   el('secTitle').textContent = s.currentSection ? s.currentSection.title : '(none)';
   el('secPrompt').textContent = s.currentSection ? s.currentSection.mainPrompt : '';
+}
+
+// ---- Live display editor ---------------------------------------------------
+function saveContent(scope, sectionKey, field, value) {
+  return post(`/session/${WS.session}/content`, { scope, sectionKey, field, value });
+}
+function pickImage(cb) { uploadCb = cb; el('imgFile').click(); }
+
+function renderEditor(s) {
+  const panel = el('editPanel');
+  if (!editMode) { panel.classList.add('hidden'); lastEditorSig = null; return; }
+  panel.classList.remove('hidden');
+  const st = s.session.status;
+  const sig = st + '|' + (s.session.currentSection || 0);
+  if (sig === lastEditorSig) return; // don't clobber fields while typing
+  lastEditorSig = sig;
+  el('editStage').textContent = (STAGE_LABELS[st] || st).toUpperCase();
+  const cfg = s.config || {}, robot = cfg.robot || {};
+  const body = el('editBody'); clear(body);
+
+  const textField = (label, value, onSave, area) => {
+    const input = area ? h('textarea', {}) : h('input', { type: 'text' });
+    input.value = value == null ? '' : value;
+    input.addEventListener('change', () => onSave(input.value));
+    return h('label', { class: 'field' }, [ h('span', { class: 'label', text: label }), input ]);
+  };
+  const listField = (label, arr, onSave) => {
+    const ta = h('textarea', { rows: Math.max(3, (arr || []).length) });
+    ta.value = (arr || []).join('\n');
+    ta.addEventListener('change', () => onSave(ta.value.split('\n').map((x) => x.trim()).filter(Boolean)));
+    return h('label', { class: 'field' }, [ h('span', { class: 'label', text: label + ' (one per line)' }), ta ]);
+  };
+  const imgBtn = (label, onPick) => h('button', { class: 'sim small', onclick: () => pickImage(onPick) }, '⬆ ' + label);
+  const add = (...nodes) => nodes.forEach((n) => n && body.appendChild(n));
+
+  if (st === 'robot') {
+    const rob = (f, l, area) => textField(l, robot[f], (v) => saveContent('robot', null, f, v), area);
+    add(
+      rob('name', 'Robot name'), rob('tagline', 'Tagline'),
+      rob('task', 'Task', true), rob('environment', 'Environment', true),
+      listField('How it works', robot.process, (v) => saveContent('robot', null, 'process', v)),
+      listField('What we already know', robot.assumptions, (v) => saveContent('robot', null, 'assumptions', v)),
+      listField('Operating limits', robot.constraints, (v) => saveContent('robot', null, 'constraints', v)),
+      listField('Your job to define', robot.unresolvedQuestions, (v) => saveContent('robot', null, 'unresolvedQuestions', v)),
+      imgBtn('Upload robot image', (url) => saveContent('robot', null, 'images', [url]).then(() => toast('Robot image updated'))),
+    );
+  } else if (st === 'section' || st === 'discussion') {
+    const sec = s.currentSection;
+    if (!sec) { add(h('p', { class: 'mute mini', text: 'Open a round to edit its slide.' })); return; }
+    const k = sec.key;
+    const sf = (f, l, area) => textField(l, sec[f], (v) => saveContent('section', k, f, v), area);
+    add(
+      sf('title', 'Round title'), sf('mainPrompt', 'Main prompt', true), sf('scenario', 'Scenario', true),
+      listField('Discuss', sec.discuss, (v) => saveContent('section', k, 'discuss', v)),
+      imgBtn('Upload round image', (url) => saveContent('section', k, 'image', url).then(() => toast('Round image updated'))),
+    );
+  } else if (st === 'final') {
+    add(
+      textField('Disclaimer', cfg.disclaimer, (v) => saveContent('meta', null, 'disclaimer', v), true),
+      imgBtn('Upload final image', (url) => saveContent('meta', null, 'finalImage', url).then(() => toast('Final image updated'))),
+    );
+  } else { // welcome / roster / groups
+    add(
+      textField('Workshop title', cfg.workshopTitle, (v) => saveContent('meta', null, 'workshopTitle', v)),
+      textField('Purpose', cfg.purpose, (v) => saveContent('meta', null, 'purpose', v), true),
+      textField('Disclaimer', cfg.disclaimer, (v) => saveContent('meta', null, 'disclaimer', v), true),
+      imgBtn('Upload robot / hero image', (url) => saveContent('robot', null, 'images', [url]).then(() => toast('Hero image updated'))),
+    );
+  }
 }
 
 function renderPresentChecklist(s) {
@@ -360,6 +443,25 @@ function wire() {
   el('addNote').addEventListener('click', () => addNote(false));
   el('addKey').addEventListener('click', () => addNote(true));
   el('pSearch').addEventListener('input', () => state && renderParticipants(state));
+
+  // Live display editing
+  el('editToggle').addEventListener('click', () => {
+    editMode = !editMode;
+    el('editToggle').classList.toggle('active', editMode);
+    lastEditorSig = null;
+    if (state) renderEditor(state);
+    if (editMode) el('editPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  el('imgFile').addEventListener('change', (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try { const r = await WS.post(`/session/${WS.session}/upload`, { dataUrl: reader.result }); if (r && r.url && uploadCb) uploadCb(r.url); }
+      catch (err) { toast(err.message, true); }
+    };
+    reader.readAsDataURL(file);
+  });
 
   // Simulation (testing aid) — the wheel animation now lives on the room display.
   const sim = (id) => el(id) && el(id).addEventListener('click', () => post(`/session/${WS.session}/${id === 'simPeople' ? 'sim/participants' : 'sim/submission'}`, id === 'simPeople' ? { count: 2 } : {})

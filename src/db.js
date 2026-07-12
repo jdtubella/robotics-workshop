@@ -140,6 +140,11 @@ ensureColumn('sessions', 'stage_order', 'TEXT'); // JSON array of facilitator fl
 ensureColumn('participants', 'sim_answers', 'TEXT'); // canned per-section answers for synthetic testers
 ensureColumn('sessions', 'spin', 'TEXT'); // transient wheel-of-fortune spin signal for the display
 ensureColumn('groups', 'presented_round', 'INTEGER'); // round in which a group presented (persists across rounds)
+ensureColumn('sessions', 'content', 'TEXT'); // per-session content overrides (edited display text + uploaded images)
+
+// Uploaded images live next to the DB so they persist on a mounted disk.
+const UPLOADS_DIR = path.join(DB_DIR, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 function logActivity({ session_code, device, actor, action, prev_value, new_value }) {
   db.prepare(
@@ -156,4 +161,4 @@ function logActivity({ session_code, device, actor, action, prev_value, new_valu
   );
 }
 
-module.exports = { db, logActivity, DB_PATH };
+module.exports = { db, logActivity, DB_PATH, UPLOADS_DIR };

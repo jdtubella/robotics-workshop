@@ -1,9 +1,11 @@
 'use strict';
 
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const QRCode = require('qrcode');
-const { db, logActivity } = require('../db');
+const { db, logActivity, UPLOADS_DIR } = require('../db');
 const { loadConfig } = require('../config');
 const { sessionCode, uid } = require('../lib/ids');
 const { assignGroups } = require('../lib/grouping');
@@ -141,30 +143,36 @@ function buildState(code, { participantId } = {}) {
   const cfg = safeConfig();
   const { rows: participants, map: memberMap } = groupMembers(code);
 
+  // Per-session content overrides (edited text + uploaded images), layered over config.
+  const ov = safeJson2(s.content) || {};
+  const secOvAll = ov.sections || {};
+
   const groups = db.prepare('SELECT * FROM groups WHERE session_code = ? ORDER BY sort_order').all(code);
   const sections = db
     .prepare('SELECT section_order, key, title FROM sections WHERE session_code = ? ORDER BY section_order')
-    .all(code);
+    .all(code)
+    .map((x) => ({ ...x, title: (secOvAll[x.key] && secOvAll[x.key].title) || x.title }));
   const currentSectionRow = s.current_section
     ? db.prepare('SELECT * FROM sections WHERE session_code = ? AND section_order = ?').get(code, s.current_section)
     : null;
-  // Slide content (scenario + discussion prompts) is read live from config by
-  // section key, so editing workshop.json updates the slides without reseeding.
+  // Scenario + discussion prompts come from config by section key (or an override).
   const cfgSection = cfg && Array.isArray(cfg.sections) && currentSectionRow
     ? cfg.sections.find((x) => x.key === currentSectionRow.key)
     : null;
+  const secOv = currentSectionRow ? (secOvAll[currentSectionRow.key] || {}) : {};
+  const pick = (o, k, fallback) => (o[k] !== undefined ? o[k] : fallback);
   const currentSection = currentSectionRow
     ? {
         order: currentSectionRow.section_order,
         key: currentSectionRow.key,
-        title: currentSectionRow.title,
-        objective: currentSectionRow.objective,
-        mainPrompt: currentSectionRow.main_prompt,
-        image: currentSectionRow.image,
+        title: pick(secOv, 'title', currentSectionRow.title),
+        objective: pick(secOv, 'objective', currentSectionRow.objective),
+        mainPrompt: pick(secOv, 'mainPrompt', currentSectionRow.main_prompt),
+        image: pick(secOv, 'image', currentSectionRow.image),
         defaultTimer: currentSectionRow.default_timer,
         fields: JSON.parse(currentSectionRow.fields_json || '[]'),
-        scenario: cfgSection ? cfgSection.scenario || '' : '',
-        discuss: cfgSection && Array.isArray(cfgSection.discuss) ? cfgSection.discuss : [],
+        scenario: pick(secOv, 'scenario', cfgSection ? cfgSection.scenario || '' : ''),
+        discuss: pick(secOv, 'discuss', cfgSection && Array.isArray(cfgSection.discuss) ? cfgSection.discuss : []),
       }
     : null;
 
@@ -199,19 +207,19 @@ function buildState(code, { participantId } = {}) {
         .all(code, s.current_section)
     : [];
 
+  const baseCfg = cfg || {};
+  const meta = ov.meta || {};
   return {
     serverNow: Date.now(),
-    config: cfg
-      ? {
-          workshopTitle: cfg.workshopTitle,
-          purpose: cfg.purpose,
-          disclaimer: cfg.disclaimer,
-          robot: cfg.robot,
-          finalImage: cfg.finalImage,
-          roleCategories: cfg.roleCategories,
-          defaults: cfg.defaults,
-        }
-      : null,
+    config: {
+      workshopTitle: pick(meta, 'workshopTitle', baseCfg.workshopTitle),
+      purpose: pick(meta, 'purpose', baseCfg.purpose),
+      disclaimer: pick(meta, 'disclaimer', baseCfg.disclaimer),
+      robot: { ...(baseCfg.robot || {}), ...(ov.robot || {}) },
+      finalImage: pick(meta, 'finalImage', baseCfg.finalImage),
+      roleCategories: baseCfg.roleCategories,
+      defaults: baseCfg.defaults,
+    },
     session: {
       code: s.code,
       workshopTitle: s.workshop_title,
@@ -690,6 +698,45 @@ router.post('/session/:code/note', (req, res) => {
   ).run(uid('n'), s.code, sectionOrder || s.current_section || 0, groupId || null, String(body).trim(), keyPoint ? 1 : 0, Date.now());
   logActivity({ session_code: s.code, action: 'note' });
   ok(res, s.code, req);
+});
+
+// ---------- live content editing ---------------------------------------------
+
+// Merge a single edited field into this session's content overrides. scope is
+// 'meta' | 'robot' | 'section' (section requires sectionKey). value may be a
+// string or an array (for list fields like assumptions/discuss).
+router.post('/session/:code/content', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const { scope, sectionKey, field, value } = req.body;
+  if (!field || !['meta', 'robot', 'section'].includes(scope)) return res.status(400).json({ error: 'bad content update' });
+  const content = safeJson2(s.content) || {};
+  if (scope === 'section') {
+    if (!sectionKey) return res.status(400).json({ error: 'sectionKey required' });
+    content.sections = content.sections || {};
+    content.sections[sectionKey] = content.sections[sectionKey] || {};
+    content.sections[sectionKey][field] = value;
+  } else {
+    content[scope] = content[scope] || {};
+    content[scope][field] = value;
+  }
+  db.prepare('UPDATE sessions SET content = ? WHERE code = ?').run(JSON.stringify(content), s.code);
+  logActivity({ session_code: s.code, action: 'content_edit', new_value: `${scope}.${sectionKey ? sectionKey + '.' : ''}${field}` });
+  ok(res, s.code, req);
+});
+
+// Accept a base64 image, store it beside the DB, return a served URL.
+router.post('/session/:code/upload', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(req.body.dataUrl || '');
+  if (!m) return res.status(400).json({ error: 'Expected a base64 image data URL.' });
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length > 15 * 1024 * 1024) return res.status(413).json({ error: 'Image too large (max 15 MB).' });
+  const ext = m[1].split('/')[1].replace('svg+xml', 'svg').replace('jpeg', 'jpg').replace(/[^a-z0-9]/gi, '') || 'png';
+  const name = `${s.code}_${Date.now()}.${ext}`;
+  try { fs.writeFileSync(path.join(UPLOADS_DIR, name), buf); }
+  catch (e) { return res.status(500).json({ error: 'Could not save image.' }); }
+  logActivity({ session_code: s.code, action: 'upload', new_value: name });
+  res.json({ ok: true, url: `/uploads/${name}` });
 });
 
 // ---------- control token ----------------------------------------------------
