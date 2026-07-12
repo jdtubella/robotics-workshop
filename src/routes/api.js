@@ -10,6 +10,7 @@ const { assignGroups } = require('../lib/grouping');
 const { pickGroup } = require('../lib/selection');
 const { canVote } = require('../lib/voting');
 const { renderSection, buildBriefPackage } = require('../lib/export');
+const { simPerson, POOL_SIZE } = require('../lib/simulate');
 
 const router = express.Router();
 
@@ -809,6 +810,95 @@ router.get('/session/:code/export/brief', (req, res) => {
   } catch (_) {}
   sendMarkdown(res, `${s.code}_brief_package.md`, md);
 });
+
+// ---------- simulation (testing aid — safe to remove) ------------------------
+
+// Add synthetic participants drawn from the 50-person pool, each carrying canned
+// per-section answers used later when simulating their group's submission.
+router.post('/session/:code/sim/participants', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const count = Math.max(1, Math.min(20, Number(req.body.count) || 2));
+  const existingSim = db
+    .prepare("SELECT COUNT(*) n FROM participants WHERE session_code = ? AND sim_answers IS NOT NULL")
+    .get(s.code).n;
+  const now = Date.now();
+  const ins = db.prepare(
+    `INSERT INTO participants (id, session_code, name, company, role, present_pref, sim_answers, late_arrival, created_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const tx = db.transaction(() => {
+    for (let k = 0; k < count; k++) {
+      const idx = existingSim + k;
+      const person = simPerson(idx % POOL_SIZE);
+      const suffix = idx >= POOL_SIZE ? ` #${Math.floor(idx / POOL_SIZE) + 1}` : '';
+      ins.run(uid('p'), s.code, person.name + suffix, person.company, person.role,
+        person.presentPref, JSON.stringify(person.answers), s.groups_finalized ? 1 : 0, now + k, now + k);
+    }
+  });
+  tx();
+  logActivity({ session_code: s.code, action: 'sim_participants', new_value: count });
+  ok(res, s.code, req);
+});
+
+// Simulate one group's submission for the current section, using its recorder's
+// canned answers. Testing shortcut: works regardless of the open/closed gate.
+router.post('/session/:code/sim/submission', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  if (!s.current_section) return res.status(409).json({ error: 'No active section.' });
+  const secRow = db.prepare('SELECT key FROM sections WHERE session_code = ? AND section_order = ?').get(s.code, s.current_section);
+  const groups = db.prepare('SELECT * FROM groups WHERE session_code = ? ORDER BY sort_order').all(s.code);
+  const next = groups.find((g) => g.status !== 'submitted' && g.status !== 'selected');
+  if (!next) return res.status(409).json({ error: 'All groups have already submitted.' });
+
+  const recorder = next.recorder_id
+    ? db.prepare('SELECT * FROM participants WHERE id = ?').get(next.recorder_id)
+    : db.prepare('SELECT * FROM participants WHERE group_id = ? LIMIT 1').get(next.id);
+  let answers = {};
+  try { answers = recorder && recorder.sim_answers ? JSON.parse(recorder.sim_answers)[secRow.key] || {} : {}; } catch (_) {}
+  const summary = answers.summary || `${next.name} — simulated answer`;
+  const response = Object.fromEntries(Object.entries(answers).filter(([k]) => k !== 'summary'));
+
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO submissions (id, session_code, section_order, group_id, response_json, summary_response, submitted, submitted_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+     ON CONFLICT(session_code, section_order, group_id) DO UPDATE SET
+       response_json = excluded.response_json, summary_response = excluded.summary_response,
+       submitted = 1, submitted_at = COALESCE(submissions.submitted_at, excluded.submitted_at), updated_at = excluded.updated_at`
+  ).run(uid('s'), s.code, s.current_section, next.id, JSON.stringify(response), summary, now, now);
+  db.prepare(`UPDATE groups SET status = 'submitted' WHERE id = ?`).run(next.id);
+  logActivity({ session_code: s.code, action: 'sim_submission', new_value: next.name });
+  res.json({ ok: true, group: next.name, state: buildState(s.code) });
+});
+
+// Simulate one vote from a participant who still has votes, for an eligible
+// submission (not their own group). Respects the no-self-vote and cap rules.
+router.post('/session/:code/sim/vote', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  if (!s.current_section) return res.status(409).json({ error: 'No active section.' });
+  const cap = votesPerParticipant();
+  const subs = db.prepare('SELECT * FROM submissions WHERE session_code = ? AND section_order = ? AND submitted = 1').all(s.code, s.current_section);
+  if (subs.length < 2) return res.status(409).json({ error: 'Need at least two submissions to vote.' });
+  const participants = db.prepare('SELECT * FROM participants WHERE session_code = ? AND group_id IS NOT NULL').all(s.code);
+
+  for (const p of shuffleArr(participants)) {
+    const used = db.prepare('SELECT COUNT(*) n FROM votes WHERE session_code = ? AND section_order = ? AND voter_id = ?')
+      .get(s.code, s.current_section, p.id).n;
+    if (used >= cap) continue;
+    const eligible = subs.filter((sub) => sub.group_id !== p.group_id && !db
+      .prepare('SELECT 1 FROM votes WHERE session_code = ? AND section_order = ? AND submission_id = ? AND voter_id = ?')
+      .get(s.code, s.current_section, sub.id, p.id));
+    if (!eligible.length) continue;
+    const target = eligible[Math.floor(Math.random() * eligible.length)];
+    db.prepare('INSERT INTO votes (id, session_code, section_order, submission_id, voter_id, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(uid('v'), s.code, s.current_section, target.id, p.id, Date.now());
+    logActivity({ session_code: s.code, action: 'sim_vote' });
+    return res.json({ ok: true, state: buildState(s.code) });
+  }
+  return res.status(409).json({ error: 'No remaining eligible votes to cast.' });
+});
+
+function shuffleArr(a) { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; }
 
 // ---------- shared responders ------------------------------------------------
 

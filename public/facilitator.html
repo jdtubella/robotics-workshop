@@ -14,6 +14,9 @@
   .mini { font-size:0.7rem; }
   .plist .row-item { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
   .viewonly { opacity:0.5; pointer-events:none; }
+  /* Simulate / testing buttons — dashed blue so they read as non-production. */
+  .sim { background:transparent; border:1px dashed var(--sel); color:var(--sel); }
+  .sim:hover { background:rgba(56,189,248,0.12); border-color:var(--sel); color:#bfe9ff; }
 </style>
 
 <div class="topbar">
@@ -80,6 +83,7 @@
             <button data-vote="open">Open Voting</button>
             <button data-vote="closed">Close Voting</button>
             <button data-vote="revealed" class="primary">Reveal Votes</button>
+            <button id="simVote" class="sim small">✦ Simulate vote</button>
           </div>
           <div class="mini mute" id="flowState"></div>
         </div>
@@ -117,6 +121,7 @@
           <div class="spread">
             <div class="label">GROUPS</div>
             <div class="btn-group">
+              <button id="simPeople" class="sim small">✦ Simulate +2 people</button>
               <button id="genGroups" class="primary">Generate</button>
               <button id="reroll">Reroll</button>
               <button id="finalize">Finalize</button>
@@ -128,7 +133,12 @@
         </div>
 
         <div class="panel col">
-          <div class="spread"><div class="label">SUBMISSION MONITOR</div><span class="mini mute" id="subCount"></span></div>
+          <div class="spread"><div class="label">SUBMISSION MONITOR</div>
+            <div class="row" style="gap:8px; align-items:center;">
+              <button id="simSubmit" class="sim small">✦ Simulate submission</button>
+              <span class="mini mute" id="subCount"></span>
+            </div>
+          </div>
           <div id="subMonitor" class="grid auto"></div>
         </div>
 
@@ -163,12 +173,15 @@
 <script src="/js/common.js"></script>
 <script>
 WS.init();
+// Testing aid: set to false (or delete the .sim buttons) to hide simulation.
+const SIMULATE = true;
 let countdown, state = null, hasControl = false, reelBusy = false;
 
 function boot() {
   if (!WS.session) { el('loading').textContent = 'Missing session code.'; return; }
   countdown = makeCountdown(el('timer'));
   el('codeLbl') && (el('codeLbl').textContent = WS.session);
+  if (!SIMULATE) document.querySelectorAll('.sim').forEach((b) => b.remove());
   WS.startPolling(2500, onState);
   wire();
 }
@@ -356,6 +369,11 @@ function wire() {
   el('addNote').addEventListener('click', () => addNote(false));
   el('addKey').addEventListener('click', () => addNote(true));
   el('pSearch').addEventListener('input', () => state && renderParticipants(state));
+
+  // Simulation (testing aid)
+  const sim = (id) => el(id) && el(id).addEventListener('click', () => post(`/session/${WS.session}/${id === 'simPeople' ? 'sim/participants' : id === 'simSubmit' ? 'sim/submission' : 'sim/vote'}`, id === 'simPeople' ? { count: 2 } : {})
+    .then((r) => { if (r) toast(id === 'simPeople' ? '+2 synthetic people' : id === 'simSubmit' ? (r.group ? r.group + ' submitted' : 'submission simulated') : 'vote simulated'); }));
+  sim('simPeople'); sim('simSubmit'); sim('simVote');
 }
 
 function showWarnings(r) {

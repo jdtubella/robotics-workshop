@@ -23,7 +23,7 @@
 <script src="/js/common.js"></script>
 <script>
 WS.init();
-let countdown = null, timerEl = null, qrImg = null, reelActive = false, lastSelected = null, lastStatus = null, lastSig = null;
+let countdown = null, timerEl = null, countdownSmall = null, timerElSmall = null, qrImg = null, reelActive = false, lastSelected = null, lastStatus = null, lastSig = null;
 
 function boot() {
   if (!WS.session) { el('stage').innerHTML = '<div class="panel">Missing session code.</div>'; return; }
@@ -67,6 +67,11 @@ function ensureTimer() {
   if (!timerEl) { timerEl = h('div', { class: 'timer huge', text: '--:--' }); countdown = makeCountdown(timerEl, { lowAt: 30000 }); }
   return timerEl;
 }
+// A smaller timer for the presentation/discussion state.
+function ensureTimerSmall() {
+  if (!timerElSmall) { timerElSmall = h('div', { class: 'timer big', text: '--:--' }); countdownSmall = makeCountdown(timerElSmall, { lowAt: 30000 }); }
+  return timerElSmall;
+}
 
 function render(state) {
   const status = state.session.status;
@@ -77,7 +82,7 @@ function render(state) {
   // Only rebuild the DOM when something visible changed. The timer keeps ticking
   // via its own interval, so idle polls no longer cause the screen to blink.
   const sig = viewSignature(state);
-  if (sig === lastSig) { if (countdown) countdown.sync(state.session.timer, state.serverNow); return; }
+  if (sig === lastSig) { syncTimers(state); return; }
   lastSig = sig;
 
   clear(stage);
@@ -95,9 +100,13 @@ function render(state) {
   stage.appendChild(body);
   stage.firstChild && stage.firstChild.classList && stage.firstChild.classList.add('fade');
 
-  // keep timer synced if present
-  if (countdown) countdown.sync(state.session.timer, state.serverNow);
+  syncTimers(state);
   lastStatus = status;
+}
+
+function syncTimers(state) {
+  if (countdown) countdown.sync(state.session.timer, state.serverNow);
+  if (countdownSmall) countdownSmall.sync(state.session.timer, state.serverNow);
 }
 
 // ---- States ----------------------------------------------------------------
@@ -256,7 +265,7 @@ function discussion(state) {
   const pById = indexBy(state.participants, 'id');
   const fields = sub && sub.response ? (sec.fields||[]).filter(f => sub.response[f.key]) : [];
   return h('div', { class:'col grow selected-pop' }, [
-    head(state),
+    head(state, ensureTimerSmall()),
     h('div', { class:'label', text:`NOW PRESENTING — ROUND ${sec.order||''}` }),
     h('h1', { class:'display', style:'font-size:4rem;', text: g ? g.name : 'GROUP' }),
     g ? h('div', { class:'wrap-cols' }, g.memberIds.map(id => { const p=pById.get(id); return p? h('span',{class:'chip',text: state.session.publicNames? p.name : 'Member'}):null; }).filter(Boolean)) : null,
