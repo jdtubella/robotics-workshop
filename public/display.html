@@ -4,17 +4,38 @@
 <link rel="stylesheet" href="/css/theme.css">
 <style>
   body { overflow-x: hidden; }
-  .stage { min-height: 100vh; padding: 40px 56px; display: flex; flex-direction: column; }
-  .stage .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+  .stage { min-height: 100vh; padding: 28px 48px; display: flex; flex-direction: column; }
+  .stage .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;
+    position: sticky; top: 0; background: rgba(12,12,13,0.9); backdrop-filter: blur(6px); z-index: 30; padding: 6px 0; }
+  .head-right { display:flex; align-items:center; gap:22px; }
+  .rejoin { display:flex; flex-direction:column; align-items:flex-end; line-height:1.2; }
+  .rejoin .mono { font-size:0.85rem; color:var(--text-dim); }
+  .code-pill { font-family:var(--mono); font-weight:800; letter-spacing:0.14em; color:var(--accent);
+    border:1px solid var(--accent-dim); border-radius:var(--radius); padding:2px 10px; margin-top:3px; font-size:1rem; }
   .robot-img { width: min(50vw, 760px); max-width: 100%; max-height: 66vh; object-fit: cover;
     border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); }
-  .big-list li { margin-bottom:8px; }
+  .robot-img.sticky { position: sticky; top: 90px; }
+  .big-list li { margin-bottom:6px; }
   .fade { animation: fade 0.5s ease; }
   @keyframes fade { from { opacity:0; transform:translateY(6px);} to {opacity:1; transform:none;} }
-  .reel-card { font-size: clamp(2rem,6vw,5rem); font-weight:800; text-transform:uppercase; letter-spacing:-0.02em; }
   .selected-pop { animation: pop 0.4s ease; }
   @keyframes pop { 0%{transform:scale(0.7);opacity:0;} 100%{transform:scale(1);opacity:1;} }
   .join-name { animation: fade 0.5s ease; }
+  /* Roster cards */
+  .roster-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; align-content:flex-start; }
+  .roster-card { background:var(--bg-3); border:1px solid var(--line); border-left:3px solid var(--accent);
+    border-radius:var(--radius); padding:16px 20px; }
+  .roster-card .nm { font-size:1.7rem; font-weight:800; letter-spacing:-0.01em; }
+  .roster-card .co { font-size:1.05rem; color:var(--text-dim); margin-top:2px; }
+  /* Submission status banner */
+  .subbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 16px;
+    border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); margin-bottom:14px; }
+  .subbar .st-chip { display:inline-flex; align-items:center; gap:7px; font-family:var(--mono); font-size:0.8rem;
+    text-transform:uppercase; letter-spacing:0.06em; padding:5px 11px; border-radius:999px; border:1px solid var(--line-2); }
+  /* Wheel of fortune */
+  .wheel-wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; }
+  #wheelSpin { transform-box: fill-box; transform-origin: center; }
+  .wheel-pointer { filter: drop-shadow(0 3px 4px rgba(0,0,0,0.6)); }
 </style>
 
 <div class="scanline"></div>
@@ -24,6 +45,7 @@
 <script>
 WS.init();
 let countdown = null, timerEl = null, countdownSmall = null, timerElSmall = null, qrImg = null, reelActive = false, lastSelected = null, lastStatus = null, lastSig = null;
+let spinning = false, lastSpinNonce = null, spinInit = false;
 
 function boot() {
   if (!WS.session) { el('stage').innerHTML = '<div class="panel">Missing session code.</div>'; return; }
@@ -42,22 +64,28 @@ function getQr(code) {
 function viewSignature(s) {
   return JSON.stringify({
     st: s.session.status, sec: s.session.currentSection, sub: s.session.submissionStatus,
-    vote: s.session.votingStatus, sel: s.session.selectedGroupId, pub: s.session.publicNames,
+    sel: s.session.selectedGroupId, pub: s.session.publicNames,
     notesShared: s.session.notesShared, share: s.shareBase,
     secKey: s.currentSection ? s.currentSection.key : null,
     order: s.sections.map((x) => x.title),
     parts: s.participants.map((p) => [p.id, p.name, p.company, p.groupId, p.isPresenter, p.isRecorder]),
     groups: s.groups.map((g) => [g.id, g.name, g.status, g.heardCount, g.memberIds.join(',')]),
-    subs: (s.submissions || []).map((x) => [x.id, x.groupId, x.submitted, x.summary, x.votes]),
+    subs: (s.submissions || []).map((x) => [x.id, x.groupId, x.submitted, x.summary]),
     notes: (s.sharedNotes || []).map((n) => [n.id, n.body, n.keyPoint]),
     robot: s.config && s.config.robot ? s.config.robot.name : null,
   });
 }
 
-function head(state, right) {
+function head(state, opts = {}) {
+  const joinHost = (state.shareBase || location.origin).replace(/^https?:\/\//, '');
+  const rejoin = h('div', { class:'rejoin' }, [
+    h('span', { class:'label', text:'REJOIN' }),
+    h('span', { class:'mono', text: joinHost + '/join' }),
+    h('span', { class:'code-pill', text: state.session.code }),
+  ]);
   return h('div', { class: 'head' }, [
     h('div', { class: 'brand' }, [ h('span', { class:'slashes', text:'//' }), ' ', (state.config && state.config.workshopTitle) || 'WORKSHOP' ]),
-    right || h('span', { class: 'label', text: 'SESSION ' + state.session.code }),
+    h('div', { class:'head-right' }, [ opts.timer || null, rejoin ]),
   ]);
 }
 
@@ -76,6 +104,12 @@ function ensureTimerSmall() {
 function render(state) {
   const status = state.session.status;
   const stage = el('stage');
+
+  // Wheel-of-fortune: a fresh random pick spins the tire on the room display.
+  const spin = state.session.spin;
+  if (!spinInit) { spinInit = true; lastSpinNonce = spin ? spin.nonce : null; } // don't replay on refresh
+  if (spin && spin.nonce !== lastSpinNonce) { lastSpinNonce = spin.nonce; playWheel(state, spin); return; }
+  if (spinning) return; // hold on the wheel until it finishes
 
   if (!state.session.selectedGroupId) lastSelected = null;
 
@@ -109,6 +143,67 @@ function syncTimers(state) {
   if (countdownSmall) countdownSmall.sync(state.session.timer, state.serverNow);
 }
 
+function escapeXml(s) { return String(s || '').replace(/[<>&]/g, (c) => ({ '<':'&lt;', '>':'&gt;', '&':'&amp;' }[c])); }
+
+// Truck-tire "wheel of fortune". Segments are the groups that haven't presented
+// yet; it spins and lands on the chosen group, then reveals the presentation.
+function playWheel(state, spin) {
+  spinning = true;
+  const stage = el('stage'); clear(stage);
+  const gName = indexBy(state.groups, 'id');
+  const ids = (spin.wheel && spin.wheel.length) ? spin.wheel : state.groups.map((g) => g.id);
+  const N = ids.length;
+  const seg = 360 / N;
+  const targetIdx = Math.max(0, ids.indexOf(spin.target));
+  const cx = 200, cy = 200, rOuter = 196, rTread = 182, rSlice = 168, rHub = 50;
+  const pt = (ang, r) => { const rad = ang * Math.PI / 180; return [cx + r * Math.sin(rad), cy - r * Math.cos(rad)]; };
+  const colors = ['#3a3a42', '#1c1c20'];
+
+  let slices = '';
+  for (let i = 0; i < N; i++) {
+    const a0 = i * seg, a1 = (i + 1) * seg;
+    const [x0, y0] = pt(a0, rSlice), [x1, y1] = pt(a1, rSlice);
+    const large = seg > 180 ? 1 : 0;
+    slices += `<path d="M${cx} ${cy} L${x0.toFixed(1)} ${y0.toFixed(1)} A${rSlice} ${rSlice} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z" fill="${colors[i % 2]}" stroke="#050505" stroke-width="1.5"/>`;
+    const [lx, ly] = pt(a0 + seg / 2, rSlice * 0.64);
+    const name = (gName.get(ids[i]) || {}).name || '';
+    slices += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" fill="#f2f2f0" font-weight="800" font-size="${N > 6 ? 13 : 18}" text-anchor="middle" dominant-baseline="middle" transform="rotate(${(a0 + seg / 2).toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)})">${escapeXml(name)}</text>`;
+  }
+  let tread = '';
+  for (let t = 0; t < 72; t++) { const [x0, y0] = pt(t * 5, rOuter), [x1, y1] = pt(t * 5, rTread); tread += `<line x1="${x0.toFixed(1)}" y1="${y0.toFixed(1)}" x2="${x1.toFixed(1)}" y2="${y1.toFixed(1)}" stroke="#050505" stroke-width="3"/>`; }
+  const bolts = [0, 60, 120, 180, 240, 300].map((a) => { const [bx, by] = pt(a, rHub * 0.6); return `<circle cx="${bx.toFixed(1)}" cy="${by.toFixed(1)}" r="5" fill="#120a06"/>`; }).join('');
+
+  const svg = `
+  <svg viewBox="0 0 400 400" style="width:min(72vh,640px); height:min(72vh,640px);">
+    <circle cx="200" cy="200" r="199" fill="#0c0c0d" stroke="#2a2a2e" stroke-width="2"/>
+    <g id="wheelSpin">
+      <circle cx="200" cy="200" r="${rOuter}" fill="#0e0e10"/>
+      ${tread}
+      <circle cx="200" cy="200" r="${rSlice + 9}" fill="#0e0e10" stroke="#ff4d1c" stroke-width="3"/>
+      ${slices}
+      <circle cx="200" cy="200" r="${rSlice}" fill="none" stroke="#ff4d1c" stroke-width="1.5" opacity="0.5"/>
+      <circle cx="200" cy="200" r="${rHub}" fill="#ff4d1c"/>
+      <circle cx="200" cy="200" r="${rHub - 3}" fill="none" stroke="#120a06" stroke-width="2"/>
+      ${bolts}
+      <circle cx="200" cy="200" r="9" fill="#120a06"/>
+    </g>
+    <polygon class="wheel-pointer" points="200,46 184,6 216,6" fill="#ff4d1c" stroke="#120a06" stroke-width="2"/>
+  </svg>`;
+
+  stage.appendChild(h('div', { class:'wheel-wrap' }, [
+    h('div', { class:'label', style:'font-size:1rem;', text:'SELECTING A GROUP TO PRESENT…' }),
+    h('div', { html: svg }),
+  ]));
+
+  const g = document.getElementById('wheelSpin');
+  const R = 360 * 6 - (targetIdx * seg + seg / 2);
+  requestAnimationFrame(() => {
+    g.style.transition = 'transform 4.2s cubic-bezier(0.12,0.86,0.18,1)';
+    g.style.transform = `rotate(${R}deg)`;
+  });
+  setTimeout(() => { spinning = false; lastSig = null; render(WS.lastState || state); }, 4700);
+}
+
 // ---- States ----------------------------------------------------------------
 
 function welcome(state) {
@@ -140,19 +235,22 @@ function welcome(state) {
 
 function roster(state) {
   const showNames = state.session.publicNames;
-  const chips = h('div', { class: 'wrap-cols grow', style:'align-content:flex-start; overflow:auto;' });
+  const grid = h('div', { class: 'roster-grid grow', style:'overflow:auto;' });
   const people = state.participants.slice().reverse();
   for (const p of people) {
-    chips.appendChild(h('span', { class:'chip join-name' }, [
-      h('span', { text: showNames ? p.name : 'Participant' }),
-      showNames && p.company ? h('span', { class:'mute', style:'font-size:0.8rem;', text: p.company }) : null,
+    grid.appendChild(h('div', { class:'roster-card join-name' }, [
+      h('div', { class:'nm', text: showNames ? p.name : 'Participant' }),
+      h('div', { class:'co', text: showNames ? (p.company || '—') : '' }),
     ]));
   }
   return h('div', { class:'col grow' }, [
-    head(state, h('div', { class:'display', style:'font-size:2.4rem;', text: state.participants.length + ' IN' })),
-    h('div', { class:'label', text:'PARTICIPANTS' }),
-    h('h1', { text: 'Who\'s In The Room' }),
-    chips,
+    head(state),
+    h('div', { class:'spread' }, [
+      h('div', {}, [ h('div', { class:'label', text:'PARTICIPANTS' }), h('h1', { text: 'Who\'s In The Room' }) ]),
+      h('div', { class:'display', style:'font-size:2.6rem;', text: state.participants.length + ' IN' }),
+    ]),
+    h('div', { style:'height:14px;' }),
+    grid,
   ]);
 }
 
@@ -200,7 +298,7 @@ function groups(state) {
     ]));
   }
   return h('div', { class:'col grow' }, [
-    head(state, ensureTimer()),
+    head(state, { timer: ensureTimer() }),
     h('div', { class:'label', text:'FIND YOUR GROUP' }),
     h('h1', { text:'Group Assignments' }),
     h('p', { class:'mute', text:'🎤 presenter   ✏️ recorder' }),
@@ -210,51 +308,32 @@ function groups(state) {
 
 function section(state) {
   const sec = state.currentSection || {};
-  const grid = h('div', { class:'grid auto', style:'margin-top:14px;' });
-  for (const g of state.groups) {
-    grid.appendChild(h('div', { class:`panel group-card st-${g.status}`, style:'padding:10px 14px;' }, [
-      h('div', { class:'spread' }, [
-        h('h3', { style:'font-size:0.95rem;', text: g.name }),
-        h('span', { class:`pill st-${g.status}` }, [ h('span',{class:'dot'}), g.status.replace('_',' ') ]),
-      ]),
-    ]));
-  }
-  const revealed = state.session.submissionStatus === 'revealed';
-  let feed = null;
-  if (revealed) {
-    const gById = indexBy(state.groups, 'id');
-    feed = h('div', { class:'col', style:'margin-top:16px;' }, [
-      h('div', { class:'label', text:'LIVE IDEA FEED' }),
-      h('div', { class:'grid auto' }, state.submissions.filter(s=>s.submitted).map((s) => h('div', { class:'panel' }, [
-        h('div', { class:'spread' }, [
-          h('div', { class:'label', text: (gById.get(s.groupId)||{}).name || 'Group' }),
-          s.votes != null ? h('span',{class:'pill st-selected'},[h('span',{class:'dot'}), s.votes+' ▲']) : null,
-        ]),
-        h('div', { class:'dim', style:'margin-top:6px; font-size:1rem;', text: s.summary || '(no headline)' }),
-      ]))),
-    ]);
-  }
+  // Submission-status banner at the top.
+  const subbar = h('div', { class:'subbar' }, [
+    h('span', { class:'label', text:'SUBMISSIONS' }),
+    ...state.groups.map((g) => h('span', { class:`st-chip st-${g.status}` }, [ h('span', { class:'dot' }), g.name ])),
+    state.groups.length ? null : h('span', { class:'mute mono', text:'no groups yet' }),
+  ]);
   const discuss = (sec.discuss && sec.discuss.length)
-    ? h('div', { style:'margin-top:14px;' }, [
+    ? h('div', { style:'margin-top:12px;' }, [
         h('div', { class:'label', text:'DISCUSS' }),
-        h('div', { class:'grid cols-2', style:'gap:4px 32px; margin-top:6px;' },
-          sec.discuss.map((q) => h('div', { class:'dim', style:'font-size:0.95rem;', text: '· ' + q }))),
+        h('div', { class:'grid cols-2', style:'gap:2px 32px; margin-top:6px;' },
+          sec.discuss.map((q) => h('div', { class:'dim', style:'font-size:0.92rem;', text: '· ' + q }))),
       ])
     : null;
   return h('div', { class:'col grow' }, [
-    head(state, ensureTimer()),
-    h('div', { class:'row', style:'gap:36px; align-items:flex-start;' }, [
+    head(state, { timer: ensureTimer() }),
+    subbar,
+    h('div', { class:'row grow', style:'gap:40px; align-items:flex-start;' }, [
       h('div', { class:'grow' }, [
         h('div', { class:'label', text:`ROUND ${sec.order||''}` }),
-        h('h1', { text: sec.title || '—' }),
-        h('p', { class:'accent', style:'font-size:1.25rem; max-width:52ch; margin-top:6px;', text: sec.mainPrompt || '' }),
-        h('p', { class:'dim', style:'font-size:0.98rem; max-width:62ch;', text: sec.scenario || sec.objective || '' }),
+        h('h1', { style:'font-size:2.3rem;', text: sec.title || '—' }),
+        h('p', { class:'accent', style:'font-size:1.2rem; max-width:50ch; margin-top:6px;', text: sec.mainPrompt || '' }),
+        h('p', { class:'dim', style:'font-size:0.95rem; max-width:58ch; margin-top:4px;', text: sec.scenario || sec.objective || '' }),
+        discuss,
       ]),
-      sec.image ? h('img', { class:'robot-img', src: sec.image, style:'width:min(46vw,700px); max-height:52vh;' }) : null,
+      sec.image ? h('img', { class:'robot-img sticky', src: sec.image, style:'width:min(42vw,640px); max-height:58vh;' }) : null,
     ]),
-    discuss,
-    grid,
-    feed,
   ]);
 }
 
@@ -265,7 +344,7 @@ function discussion(state) {
   const pById = indexBy(state.participants, 'id');
   const fields = sub && sub.response ? (sec.fields||[]).filter(f => sub.response[f.key]) : [];
   return h('div', { class:'col grow selected-pop' }, [
-    head(state, ensureTimerSmall()),
+    head(state, { timer: ensureTimerSmall() }),
     h('div', { class:'label', text:`NOW PRESENTING — ROUND ${sec.order||''}` }),
     h('h1', { class:'display', style:'font-size:4rem;', text: g ? g.name : 'GROUP' }),
     g ? h('div', { class:'wrap-cols' }, g.memberIds.map(id => { const p=pById.get(id); return p? h('span',{class:'chip',text: state.session.publicNames? p.name : 'Member'}):null; }).filter(Boolean)) : null,

@@ -58,14 +58,6 @@
       <div id="recorderLock" class="banner warn hidden" style="margin-top:8px;"></div>
     </div>
 
-    <!-- Voting -->
-    <div id="voteBox" class="panel col hidden">
-      <div class="spread"><div class="label">VOTE — PICK UP TO <span id="voteMax">2</span></div>
-        <span class="pill" id="votesLeftPill"><span class="dot"></span><span id="votesLeft"></span> LEFT</span></div>
-      <p class="dim" style="font-size:0.85rem;">Choose the answers that resonate most. You can't vote for your own group.</p>
-      <div id="voteList" class="col"></div>
-    </div>
-
     <!-- Selected/discussion -->
     <div id="discussBox" class="panel hidden">
       <div class="label">NOW DISCUSSING</div>
@@ -123,7 +115,6 @@ function render(state) {
     : 'Only your group\'s <b>recorder</b> (✏️) can edit the answer. You can follow along here.';
 
   renderSection(state, group, me);
-  renderVoting(state, group, me);
   renderDiscuss(state);
 }
 
@@ -184,7 +175,7 @@ function renderSection(state, group, me) {
   el('submitBtn').disabled = !editable;
   const lock = el('recorderLock');
   if (!isRecorder) { lock.classList.remove('hidden'); lock.textContent = 'View-only — you are not the recorder.'; }
-  else if (!open) { lock.classList.remove('hidden'); lock.textContent = state.session.submissionStatus === 'revealed' ? 'Submissions revealed — editing locked.' : 'Submissions are closed. Wait for the facilitator to open them.'; }
+  else if (!open) { lock.classList.remove('hidden'); lock.textContent = 'This round hasn\'t opened yet — hold tight.'; }
   else lock.classList.add('hidden');
 
   if (mySub && mySub.submitted) el('saveStatus').textContent = 'Submitted ✓';
@@ -207,36 +198,6 @@ async function save(submit) {
 }
 el('saveBtn').addEventListener('click', () => save(false));
 el('submitBtn').addEventListener('click', () => save(true));
-
-function renderVoting(state, group, me) {
-  const box = el('voteBox');
-  if (state.session.votingStatus !== 'open') { box.classList.add('hidden'); return; }
-  box.classList.remove('hidden');
-  el('voteMax').textContent = (state.config && state.config.defaults && state.config.defaults.votesPerParticipant) || 2;
-  el('votesLeft').textContent = me ? me.votesRemaining : 0;
-  const list = el('voteList'); clear(list);
-  const gById = indexBy(state.groups, 'id');
-  for (const sub of state.submissions) {
-    const own = sub.groupId === group.id;
-    const gname = (gById.get(sub.groupId) || {}).name || 'Group';
-    const card = h('div', { class: 'panel', style: 'padding:14px;' }, [
-      h('div', { class: 'spread' }, [
-        h('div', { class: 'label', text: own ? gname + ' (your group)' : gname }),
-        own ? h('span', { class: 'mute mono', text: 'NO SELF-VOTE' })
-            : h('button', { class: 'small', 'data-sub': sub.id, onclick: (e) => vote(e.target.dataset.sub) }, 'Vote'),
-      ]),
-      h('div', { class: 'dim', style: 'margin-top:6px; font-size:0.9rem;', text: sub.summary || '(no headline)' }),
-    ]);
-    list.appendChild(card);
-  }
-}
-async function vote(subId) {
-  try {
-    const r = await WS.post(`/session/${WS.session}/vote`, { participantId: PID, submissionId: subId });
-    toast(r.removed ? 'Vote removed' : 'Voted');
-    if (r.state) render(r.state);
-  } catch (e) { toast(e.message, true); }
-}
 
 function renderDiscuss(state) {
   const box = el('discussBox');

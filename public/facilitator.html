@@ -71,34 +71,14 @@
           <p class="dim mini" id="secPrompt"></p>
         </div>
 
-        <!-- Submission + voting flow -->
-        <div class="panel col">
-          <div class="label">FLOW CONTROL</div>
-          <div class="btn-group">
-            <button data-sub="open">Open Submissions</button>
-            <button data-sub="closed">Close</button>
-            <button data-sub="revealed" class="primary">Reveal All</button>
-          </div>
-          <div class="btn-group">
-            <button data-vote="open">Open Voting</button>
-            <button data-vote="closed">Close Voting</button>
-            <button data-vote="revealed" class="primary">Reveal Votes</button>
-            <button id="simVote" class="sim small">✦ Simulate vote</button>
-          </div>
-          <div class="mini mute" id="flowState"></div>
-        </div>
-
         <!-- Selection -->
         <div class="panel col">
-          <div class="label">SELECT A GROUP</div>
+          <div class="label">SELECT A GROUP TO PRESENT</div>
+          <p class="mini mute">Submissions open automatically when a round starts.</p>
           <div class="btn-group">
-            <button class="primary" id="selRandom">🎲 Random</button>
-            <button id="selNotHeard">Not Yet Heard</button>
-            <button id="selHighest">Highest Voted</button>
+            <button class="primary" id="selRandom">🎡 Spin (Random)</button>
             <button id="selClear" class="ghost">Clear</button>
           </div>
-          <label class="check mini"><input type="checkbox" id="avoidRepeats" checked> Avoid repeats until all heard</label>
-          <div id="reel" class="reel-card accent center hidden" style="padding:20px 0;"></div>
           <div class="mini mute" id="selState"></div>
         </div>
 
@@ -209,7 +189,6 @@ function onState(s) {
   renderExports(s);
   el('pubNames').checked = s.session.publicNames;
   el('notesShared').checked = s.session.notesShared;
-  el('flowState').textContent = `Submissions: ${s.session.submissionStatus.toUpperCase()} · Voting: ${s.session.votingStatus.toUpperCase()}`;
 }
 
 // Human labels for the fixed (non-round) stages.
@@ -354,26 +333,21 @@ function wire() {
     if (v>0) post(`/session/${WS.session}/timer`, { action:'start', durationSeconds:v });
   });
 
-  document.querySelectorAll('[data-sub]').forEach(b => b.addEventListener('click', () => post(`/session/${WS.session}/submissions`, { status:b.dataset.sub })));
-  document.querySelectorAll('[data-vote]').forEach(b => b.addEventListener('click', () => post(`/session/${WS.session}/voting`, { status:b.dataset.vote })));
-
   el('genGroups').addEventListener('click', async () => { const r = await post(`/session/${WS.session}/groups/generate`); showWarnings(r); });
   el('reroll').addEventListener('click', async () => { const r = await post(`/session/${WS.session}/groups/reroll`); showWarnings(r); });
   el('finalize').addEventListener('click', () => { post(`/session/${WS.session}/groups/finalize`); toast('Groups finalized'); });
 
   el('selRandom').addEventListener('click', () => runSelect('random'));
-  el('selNotHeard').addEventListener('click', () => runSelect('not_heard'));
-  el('selHighest').addEventListener('click', () => runSelect('highest'));
   el('selClear').addEventListener('click', () => post(`/session/${WS.session}/select/clear`));
 
   el('addNote').addEventListener('click', () => addNote(false));
   el('addKey').addEventListener('click', () => addNote(true));
   el('pSearch').addEventListener('input', () => state && renderParticipants(state));
 
-  // Simulation (testing aid)
-  const sim = (id) => el(id) && el(id).addEventListener('click', () => post(`/session/${WS.session}/${id === 'simPeople' ? 'sim/participants' : id === 'simSubmit' ? 'sim/submission' : 'sim/vote'}`, id === 'simPeople' ? { count: 2 } : {})
-    .then((r) => { if (r) toast(id === 'simPeople' ? '+2 synthetic people' : id === 'simSubmit' ? (r.group ? r.group + ' submitted' : 'submission simulated') : 'vote simulated'); }));
-  sim('simPeople'); sim('simSubmit'); sim('simVote');
+  // Simulation (testing aid) — the wheel animation now lives on the room display.
+  const sim = (id) => el(id) && el(id).addEventListener('click', () => post(`/session/${WS.session}/${id === 'simPeople' ? 'sim/participants' : 'sim/submission'}`, id === 'simPeople' ? { count: 2 } : {})
+    .then((r) => { if (r) toast(id === 'simPeople' ? '+2 synthetic people' : (r.group ? r.group + ' submitted' : 'submission simulated')); }));
+  sim('simPeople'); sim('simSubmit');
 }
 
 function showWarnings(r) {
@@ -385,32 +359,10 @@ function showWarnings(r) {
 
 async function runSelect(mode) {
   if (!hasControl) return toast('Take control first', true);
-  if (reelBusy) return;
-  reelBusy = true;
   try {
-    const r = await WS.post(`/session/${WS.session}/select`, { mode, avoidRepeats: el('avoidRepeats').checked });
-    if (r.reel && r.reel.length > 1) await playReel(r.reel, r.groupId);
-    if (r.state) onState(r.state);
-    const g = state.groups.find(x=>x.id===r.groupId);
-    el('selState').textContent = g ? `Selected: ${g.name}` : '';
+    const r = await post(`/session/${WS.session}/select`, { mode });
+    if (r) { const g = state.groups.find(x => x.id === r.groupId); el('selState').textContent = g ? `Spinning to ${g.name}… (see room display)` : ''; }
   } catch (e) { toast(e.message, true); }
-  reelBusy = false;
-}
-
-function playReel(reel, winnerId) {
-  return new Promise((resolve) => {
-    const box = el('reel'); box.classList.remove('hidden');
-    const names = new Map((state.groups||[]).map(g=>[g.id,g.name]));
-    let i = 0; let delay = 60;
-    function step() {
-      box.textContent = names.get(reel[i]) || '…';
-      i++;
-      if (i >= reel.length) { box.textContent = names.get(winnerId) || box.textContent; box.classList.add('selected-pop'); setTimeout(()=>{box.classList.remove('selected-pop');}, 400); setTimeout(resolve, 700); return; }
-      delay = i > reel.length - 5 ? delay + 90 : 60; // slow down near the end
-      setTimeout(step, delay);
-    }
-    step();
-  });
 }
 
 async function addNote(key) {

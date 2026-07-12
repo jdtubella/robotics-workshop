@@ -138,6 +138,7 @@ function ensureColumn(table, column, decl) {
 }
 ensureColumn('sessions', 'stage_order', 'TEXT'); // JSON array of facilitator flow steps
 ensureColumn('participants', 'sim_answers', 'TEXT'); // canned per-section answers for synthetic testers
+ensureColumn('sessions', 'spin', 'TEXT'); // transient wheel-of-fortune spin signal for the display
 
 function logActivity({ session_code, device, actor, action, prev_value, new_value }) {
   db.prepare(

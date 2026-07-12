@@ -7,8 +7,6 @@ const { db, logActivity } = require('../db');
 const { loadConfig } = require('../config');
 const { sessionCode, uid } = require('../lib/ids');
 const { assignGroups } = require('../lib/grouping');
-const { pickGroup } = require('../lib/selection');
-const { canVote } = require('../lib/voting');
 const { renderSection, buildBriefPackage } = require('../lib/export');
 const { simPerson, POOL_SIZE } = require('../lib/simulate');
 
@@ -173,31 +171,16 @@ function buildState(code, { participantId } = {}) {
   const me = participantId ? participants.find((p) => p.id === participantId) : null;
   const myGroupId = me ? me.group_id : null;
 
-  // Submissions for the current section, visibility-filtered.
+  // Submissions for the current section. Content is only exposed for the
+  // requester's own group or the group currently presenting.
   let submissions = [];
-  let myVotesUsed = 0;
   if (s.current_section) {
     const subs = db
       .prepare('SELECT * FROM submissions WHERE session_code = ? AND section_order = ?')
       .all(code, s.current_section);
-    const revealed = s.submission_status === 'revealed';
-    const votingRevealed = s.voting_status === 'revealed';
-    const voteCounts = new Map(
-      db
-        .prepare(
-          `SELECT submission_id, COUNT(*) n FROM votes WHERE session_code = ? AND section_order = ? GROUP BY submission_id`
-        )
-        .all(code, s.current_section)
-        .map((r) => [r.submission_id, r.n])
-    );
-    if (participantId) {
-      myVotesUsed = db
-        .prepare('SELECT COUNT(*) n FROM votes WHERE session_code = ? AND section_order = ? AND voter_id = ?')
-        .get(code, s.current_section, participantId).n;
-    }
     submissions = subs.map((sub) => {
       const mine = myGroupId && sub.group_id === myGroupId;
-      const showContent = revealed || mine;
+      const showContent = mine || sub.group_id === s.selected_group_id;
       return {
         id: sub.id,
         groupId: sub.group_id,
@@ -205,16 +188,8 @@ function buildState(code, { participantId } = {}) {
         mine: !!mine,
         summary: showContent ? sub.summary_response : null,
         response: showContent ? safeJson(sub.response_json) : null,
-        votes: votingRevealed ? voteCounts.get(sub.id) || 0 : null,
       };
     });
-    // Randomized-but-stable order for reveal: derived from the submission id so it
-    // is shuffled relative to group order yet does NOT reshuffle on every poll
-    // (which would make the room display jump around).
-    if (revealed) {
-      const hash = (str) => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; return h; };
-      submissions.sort((a, b) => hash(a.id) - hash(b.id));
-    }
   }
 
   const notesShared = !!s.notes_shared;
@@ -244,9 +219,9 @@ function buildState(code, { participantId } = {}) {
       currentSection: s.current_section,
       publicNames: !!s.public_names,
       submissionStatus: s.submission_status,
-      votingStatus: s.voting_status,
       groupsFinalized: !!s.groups_finalized,
       selectedGroupId: s.selected_group_id,
+      spin: safeJson2(s.spin),
       notesShared,
       controlDeviceId: s.control_device_id,
       timer: timerRemaining(s),
@@ -286,13 +261,13 @@ function buildState(code, { participantId } = {}) {
           groupId: me.group_id,
           isRecorder: !!me.is_recorder,
           isPresenter: !!me.is_presenter,
-          votesRemaining: Math.max(0, votesPerParticipant() - myVotesUsed),
         }
       : null,
   };
 }
 
 function safeJson(s) { try { return JSON.parse(s || '{}'); } catch (_) { return {}; } }
+function safeJson2(s) { try { return s ? JSON.parse(s) : null; } catch (_) { return null; } }
 function safeConfig() { try { return loadConfig(); } catch (_) { return null; } }
 
 // ---------- session lifecycle ------------------------------------------------
@@ -367,10 +342,10 @@ router.post('/session/:code/section', (req, res) => {
   if (req.body.action === 'next') next = Math.min(total, s.current_section + 1) || 1;
   else if (req.body.action === 'prev') next = Math.max(1, s.current_section - 1);
   else if (req.body.set != null) next = Math.max(1, Math.min(total, Number(req.body.set)));
-  // Moving sections resets per-section interaction state.
+  // Moving sections resets per-round state and immediately opens submissions.
   db.prepare(
-    `UPDATE sessions SET current_section = ?, submission_status = 'closed', voting_status = 'closed',
-      selected_group_id = NULL, status = 'section' WHERE code = ?`
+    `UPDATE sessions SET current_section = ?, submission_status = 'open', voting_status = 'closed',
+      selected_group_id = NULL, spin = NULL, status = 'section' WHERE code = ?`
   ).run(next, s.code);
   db.prepare(`UPDATE groups SET status = 'not_started' WHERE session_code = ?`).run(s.code);
   logActivity({ session_code: s.code, action: 'section', prev_value: s.current_section, new_value: next });
@@ -634,15 +609,6 @@ function fixGroupRoles(code, gid) {
 
 // ---------- submissions ------------------------------------------------------
 
-router.post('/session/:code/submissions', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
-  const { status } = req.body; // open|closed|revealed
-  if (!['open', 'closed', 'revealed'].includes(status)) return res.status(400).json({ error: 'bad status' });
-  db.prepare('UPDATE sessions SET submission_status = ? WHERE code = ?').run(status, s.code);
-  logActivity({ session_code: s.code, action: 'submission_status', new_value: status });
-  ok(res, s.code, req);
-});
-
 router.post('/session/:code/submission', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return;
   const { participantId, response, summary, submit } = req.body;
@@ -675,94 +641,38 @@ router.post('/session/:code/submission', (req, res) => {
   res.json({ ok: true, state: buildState(s.code, { participantId }) });
 });
 
-// ---------- voting -----------------------------------------------------------
-
-router.post('/session/:code/voting', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
-  const { status } = req.body; // open|closed|revealed
-  if (!['open', 'closed', 'revealed'].includes(status)) return res.status(400).json({ error: 'bad status' });
-  // Voting can only open once submissions are revealed.
-  if (status === 'open' && s.submission_status !== 'revealed') {
-    return res.status(409).json({ error: 'Reveal submissions before opening voting.' });
-  }
-  db.prepare('UPDATE sessions SET voting_status = ? WHERE code = ?').run(status, s.code);
-  logActivity({ session_code: s.code, action: 'voting_status', new_value: status });
-  ok(res, s.code, req);
-});
-
-router.post('/session/:code/vote', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
-  const { participantId, submissionId } = req.body;
-  const participant = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(participantId, s.code);
-  const submission = db.prepare('SELECT * FROM submissions WHERE id = ? AND session_code = ?').get(submissionId, s.code);
-  const existingVoteCount = participant
-    ? db.prepare('SELECT COUNT(*) n FROM votes WHERE session_code = ? AND section_order = ? AND voter_id = ?')
-        .get(s.code, s.current_section, participantId).n
-    : 0;
-
-  // Toggle off if already voted for this submission.
-  const already = db
-    .prepare('SELECT * FROM votes WHERE session_code = ? AND section_order = ? AND submission_id = ? AND voter_id = ?')
-    .get(s.code, s.current_section, submissionId, participantId);
-  if (already) {
-    db.prepare('DELETE FROM votes WHERE id = ?').run(already.id);
-    return res.json({ ok: true, removed: true, state: buildState(s.code, { participantId }) });
-  }
-
-  const check = canVote({ session: s, participant, submission, existingVoteCount, votesPerParticipant: votesPerParticipant() });
-  if (!check.ok) return res.status(409).json({ error: check.reason });
-  db.prepare(
-    'INSERT INTO votes (id, session_code, section_order, submission_id, voter_id, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(uid('v'), s.code, s.current_section, submissionId, participantId, Date.now());
-  res.json({ ok: true, state: buildState(s.code, { participantId }) });
-});
-
 // ---------- selection --------------------------------------------------------
 
 router.post('/session/:code/select', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return;
-  const { mode, groupId, avoidRepeats } = req.body;
+  const { mode, groupId } = req.body;
   const groups = db.prepare('SELECT * FROM groups WHERE session_code = ? ORDER BY sort_order').all(s.code);
   if (!groups.length) return res.status(409).json({ error: 'No groups yet.' });
 
-  let chosen = null, reel = [];
+  let chosen = null, spin = null;
   if (mode === 'manual') {
     chosen = groups.find((g) => g.id === groupId) || null;
-    reel = [chosen ? chosen.id : groups[0].id];
-  } else if (mode === 'highest') {
-    const rows = db
-      .prepare(
-        `SELECT group_id, COUNT(v.id) n FROM submissions sub
-         LEFT JOIN votes v ON v.submission_id = sub.id
-         WHERE sub.session_code = ? AND sub.section_order = ? GROUP BY sub.group_id ORDER BY n DESC`
-      )
-      .all(s.code, s.current_section);
-    const topId = rows.length ? rows[0].group_id : groups[0].id;
-    chosen = groups.find((g) => g.id === topId) || groups[0];
-    reel = [chosen.id];
   } else {
-    // random or not_heard
-    let eligibleIds = null;
-    if (mode === 'not_heard') {
-      const min = Math.min(...groups.map((g) => g.heard_count));
-      eligibleIds = groups.filter((g) => g.heard_count === min).map((g) => g.id);
-    }
-    const r = pickGroup(groups, { avoidRepeats: avoidRepeats !== false, eligibleIds });
-    chosen = groups.find((g) => g.id === r.groupId) || null;
-    reel = r.reel;
+    // Random pick over groups that haven't presented yet; the wheel shows exactly
+    // those groups so presented ones "fall off" between spins.
+    const unheard = groups.filter((g) => (g.heard_count || 0) === 0);
+    const wheel = unheard.length ? unheard : groups;
+    chosen = wheel[Math.floor(Math.random() * wheel.length)];
+    spin = { nonce: Date.now(), target: chosen.id, wheel: wheel.map((g) => g.id) };
   }
   if (!chosen) return res.status(400).json({ error: 'Could not select a group.' });
 
   db.prepare(`UPDATE groups SET status = 'submitted' WHERE session_code = ? AND status = 'selected'`).run(s.code);
   db.prepare('UPDATE groups SET status = ?, heard_count = heard_count + 1 WHERE id = ?').run('selected', chosen.id);
-  db.prepare('UPDATE sessions SET selected_group_id = ?, status = ? WHERE code = ?').run(chosen.id, 'discussion', s.code);
+  db.prepare('UPDATE sessions SET selected_group_id = ?, spin = ?, status = ? WHERE code = ?')
+    .run(chosen.id, spin ? JSON.stringify(spin) : null, 'discussion', s.code);
   logActivity({ session_code: s.code, action: 'select', new_value: chosen.id });
-  res.json({ ok: true, groupId: chosen.id, reel, state: buildState(s.code) });
+  res.json({ ok: true, groupId: chosen.id, spin, state: buildState(s.code) });
 });
 
 router.post('/session/:code/select/clear', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return;
-  db.prepare('UPDATE sessions SET selected_group_id = NULL, status = ? WHERE code = ?').run('section', s.code);
+  db.prepare('UPDATE sessions SET selected_group_id = NULL, spin = NULL, status = ? WHERE code = ?').run('section', s.code);
   ok(res, s.code, req);
 });
 
@@ -871,34 +781,6 @@ router.post('/session/:code/sim/submission', (req, res) => {
   res.json({ ok: true, group: next.name, state: buildState(s.code) });
 });
 
-// Simulate one vote from a participant who still has votes, for an eligible
-// submission (not their own group). Respects the no-self-vote and cap rules.
-router.post('/session/:code/sim/vote', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
-  if (!s.current_section) return res.status(409).json({ error: 'No active section.' });
-  const cap = votesPerParticipant();
-  const subs = db.prepare('SELECT * FROM submissions WHERE session_code = ? AND section_order = ? AND submitted = 1').all(s.code, s.current_section);
-  if (subs.length < 2) return res.status(409).json({ error: 'Need at least two submissions to vote.' });
-  const participants = db.prepare('SELECT * FROM participants WHERE session_code = ? AND group_id IS NOT NULL').all(s.code);
-
-  for (const p of shuffleArr(participants)) {
-    const used = db.prepare('SELECT COUNT(*) n FROM votes WHERE session_code = ? AND section_order = ? AND voter_id = ?')
-      .get(s.code, s.current_section, p.id).n;
-    if (used >= cap) continue;
-    const eligible = subs.filter((sub) => sub.group_id !== p.group_id && !db
-      .prepare('SELECT 1 FROM votes WHERE session_code = ? AND section_order = ? AND submission_id = ? AND voter_id = ?')
-      .get(s.code, s.current_section, sub.id, p.id));
-    if (!eligible.length) continue;
-    const target = eligible[Math.floor(Math.random() * eligible.length)];
-    db.prepare('INSERT INTO votes (id, session_code, section_order, submission_id, voter_id, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(uid('v'), s.code, s.current_section, target.id, p.id, Date.now());
-    logActivity({ session_code: s.code, action: 'sim_vote' });
-    return res.json({ ok: true, state: buildState(s.code) });
-  }
-  return res.status(409).json({ error: 'No remaining eligible votes to cast.' });
-});
-
-function shuffleArr(a) { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; }
 
 // ---------- shared responders ------------------------------------------------
 

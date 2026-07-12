@@ -29,26 +29,19 @@ function gatherSection(code, order) {
     .prepare('SELECT * FROM submissions WHERE session_code = ? AND section_order = ?')
     .all(code, order);
   const subByGroup = new Map(subs.map((s) => [s.group_id, s]));
-  const voteRows = db
-    .prepare(
-      `SELECT submission_id, COUNT(*) AS n FROM votes
-       WHERE session_code = ? AND section_order = ? GROUP BY submission_id`
-    )
-    .all(code, order);
-  const votesBySub = new Map(voteRows.map((v) => [v.submission_id, v.n]));
   const notes = db
     .prepare(
       'SELECT * FROM notes WHERE session_code = ? AND section_order = ? ORDER BY created_at'
     )
     .all(code, order);
   const members = participantsByGroup(code);
-  return { section, groups, subByGroup, votesBySub, notes, members };
+  return { section, groups, subByGroup, notes, members };
 }
 
 function renderSection(code, order, { heading = '##' } = {}) {
   const data = gatherSection(code, order);
   if (!data) return `${heading} Section ${order}\n\n_(not found)_\n`;
-  const { section, groups, subByGroup, votesBySub, notes, members } = data;
+  const { section, groups, subByGroup, notes, members } = data;
   const fields = JSON.parse(section.fields_json || '[]');
   const lines = [];
 
@@ -63,9 +56,8 @@ function renderSection(code, order, { heading = '##' } = {}) {
   lines.push('');
   for (const g of groups) {
     const sub = subByGroup.get(g.id);
-    const votes = votesBySub.get(sub?.id) || 0;
     const mem = (members.get(g.id) || []).map((m) => esc(m.name)).join(', ');
-    lines.push(`${heading}## ${esc(g.name)}  —  ${votes} vote(s)`);
+    lines.push(`${heading}## ${esc(g.name)}`);
     if (mem) lines.push(`_Members: ${mem}_`);
     lines.push('');
     if (!sub || !sub.submitted) {
