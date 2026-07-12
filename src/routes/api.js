@@ -248,6 +248,7 @@ function buildState(code, { participantId } = {}) {
       presenterId: g.presenter_id,
       recorderId: g.recorder_id,
       heardCount: g.heard_count,
+      presentedRound: g.presented_round || null,
       status: g.status,
       sortOrder: g.sort_order,
       memberIds: (memberMap.get(g.id) || []).map((m) => m.id),
@@ -653,17 +654,19 @@ router.post('/session/:code/select', (req, res) => {
   if (mode === 'manual') {
     chosen = groups.find((g) => g.id === groupId) || null;
   } else {
-    // Random pick over groups that haven't presented yet; the wheel shows exactly
-    // those groups so presented ones "fall off" between spins.
-    const unheard = groups.filter((g) => (g.heard_count || 0) === 0);
-    const wheel = unheard.length ? unheard : groups;
+    // Random pick over groups that have NOT presented in any prior round. Presented
+    // groups stay off the wheel for the rest of the workshop (fall back to all only
+    // once everybody has presented).
+    const notPresented = groups.filter((g) => !g.presented_round);
+    const wheel = notPresented.length ? notPresented : groups;
     chosen = wheel[Math.floor(Math.random() * wheel.length)];
     spin = { nonce: Date.now(), target: chosen.id, wheel: wheel.map((g) => g.id) };
   }
   if (!chosen) return res.status(400).json({ error: 'Could not select a group.' });
 
   db.prepare(`UPDATE groups SET status = 'submitted' WHERE session_code = ? AND status = 'selected'`).run(s.code);
-  db.prepare('UPDATE groups SET status = ?, heard_count = heard_count + 1 WHERE id = ?').run('selected', chosen.id);
+  db.prepare('UPDATE groups SET status = ?, heard_count = heard_count + 1, presented_round = COALESCE(presented_round, ?) WHERE id = ?')
+    .run('selected', s.current_section, chosen.id);
   db.prepare('UPDATE sessions SET selected_group_id = ?, spin = ?, status = ? WHERE code = ?')
     .run(chosen.id, spin ? JSON.stringify(spin) : null, 'discussion', s.code);
   logActivity({ session_code: s.code, action: 'select', new_value: chosen.id });

@@ -14,7 +14,11 @@
     border:1px solid var(--accent-dim); border-radius:var(--radius); padding:2px 10px; margin-top:3px; font-size:1rem; }
   .robot-img { width: min(50vw, 760px); max-width: 100%; max-height: 66vh; object-fit: cover;
     border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); }
-  .robot-img.sticky { position: sticky; top: 90px; }
+  .robot-img.sticky { position: sticky; top: 76px; }
+  /* Compact header for round slides — frees vertical room so the image scales up. */
+  .compact-head .head { margin-bottom: 8px; padding: 2px 0; }
+  .compact-head .subbar { margin-bottom: 10px; padding: 7px 14px; }
+  .compact-head .timer.big { font-size: 1.9rem; }
   .big-list li { margin-bottom:6px; }
   .fade { animation: fade 0.5s ease; }
   @keyframes fade { from { opacity:0; transform:translateY(6px);} to {opacity:1; transform:none;} }
@@ -321,18 +325,18 @@ function section(state) {
           sec.discuss.map((q) => h('div', { class:'dim', style:'font-size:0.92rem;', text: '· ' + q }))),
       ])
     : null;
-  return h('div', { class:'col grow' }, [
-    head(state, { timer: ensureTimer() }),
+  return h('div', { class:'col grow compact-head' }, [
+    head(state, { timer: ensureTimerSmall() }),
     subbar,
     h('div', { class:'row grow', style:'gap:40px; align-items:flex-start;' }, [
-      h('div', { class:'grow' }, [
+      h('div', { class:'grow', style:'display:flex; flex-direction:column;' }, [
         h('div', { class:'label', text:`ROUND ${sec.order||''}` }),
-        h('h1', { style:'font-size:2.3rem;', text: sec.title || '—' }),
-        h('p', { class:'accent', style:'font-size:1.2rem; max-width:50ch; margin-top:6px;', text: sec.mainPrompt || '' }),
-        h('p', { class:'dim', style:'font-size:0.95rem; max-width:58ch; margin-top:4px;', text: sec.scenario || sec.objective || '' }),
+        h('h1', { style:'font-size:2.6rem;', text: sec.title || '—' }),
+        h('p', { class:'accent', style:'font-size:1.3rem; max-width:48ch; margin-top:10px;', text: sec.mainPrompt || '' }),
+        h('p', { class:'dim', style:'font-size:1rem; max-width:56ch; margin-top:8px;', text: sec.scenario || sec.objective || '' }),
         discuss,
       ]),
-      sec.image ? h('img', { class:'robot-img sticky', src: sec.image, style:'width:min(42vw,640px); max-height:58vh;' }) : null,
+      sec.image ? h('img', { class:'robot-img sticky', src: sec.image, style:'width:min(54vw,860px); max-height:82vh; align-self:flex-start;' }) : null,
     ]),
   ]);
 }

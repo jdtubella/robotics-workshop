@@ -80,6 +80,8 @@
             <button id="selClear" class="ghost">Clear</button>
           </div>
           <div class="mini mute" id="selState"></div>
+          <div class="label" style="margin-top:12px;">PRESENTED SO FAR</div>
+          <div id="presentChecklist" class="col mini" style="gap:4px; margin-top:6px;"></div>
         </div>
 
         <!-- Notes -->
@@ -182,6 +184,7 @@ function onState(s) {
 
   renderStageNav(s);
   renderSection(s);
+  renderPresentChecklist(s);
   renderGroups(s);
   renderMonitor(s);
   renderParticipants(s);
@@ -236,6 +239,20 @@ function renderSection(s) {
   el('secNum').textContent = s.session.currentSection || 0;
   el('secTitle').textContent = s.currentSection ? s.currentSection.title : '(none)';
   el('secPrompt').textContent = s.currentSection ? s.currentSection.mainPrompt : '';
+}
+
+function renderPresentChecklist(s) {
+  const box = el('presentChecklist'); if (!box) return; clear(box);
+  const ordered = s.groups.slice().sort((a, b) => (a.presentedRound || 99) - (b.presentedRound || 99) || a.sortOrder - b.sortOrder);
+  for (const g of ordered) {
+    const done = !!g.presentedRound;
+    box.appendChild(h('div', { class: 'row-item mini', style: done ? '' : 'opacity:0.7;' }, [
+      h('span', { style: done ? 'color:var(--ok);' : 'color:var(--text-mute);', text: done ? '✓' : '○' }),
+      h('span', { text: g.name }),
+      h('span', { style: 'margin-left:auto;', class: 'mute', text: done ? `Round ${g.presentedRound}` : 'not yet' }),
+    ]));
+  }
+  if (!s.groups.length) box.appendChild(h('span', { class: 'mute', text: 'No groups yet.' }));
 }
 
 function renderGroups(s) {
