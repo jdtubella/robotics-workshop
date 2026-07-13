@@ -3,6 +3,7 @@
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 const express = require('express');
 const QRCode = require('qrcode');
 const { db, logActivity, UPLOADS_DIR } = require('../db');
@@ -13,6 +14,23 @@ const { renderSection, buildBriefPackage } = require('../lib/export');
 const { simPerson, POOL_SIZE } = require('../lib/simulate');
 
 const router = express.Router();
+
+// Auto-commit editor changes (config + uploaded images) to git so they persist
+// in the repo. Only runs on a local git checkout — never on the hosted instance
+// (no push credentials there, and its filesystem is a deploy artifact, not a repo).
+const PROJECT_ROOT = path.join(__dirname, '..', '..');
+let _gitOk = null;
+function gitEnabled() {
+  if (_gitOk === null) _gitOk = !process.env.RENDER && !process.env.NO_AUTOCOMMIT && fs.existsSync(path.join(PROJECT_ROOT, '.git'));
+  return _gitOk;
+}
+function autoCommit(message, paths) {
+  if (!gitEnabled()) return;
+  execFile('git', ['-C', PROJECT_ROOT, 'add', ...paths], (addErr) => {
+    if (addErr) return;
+    execFile('git', ['-C', PROJECT_ROOT, '-c', 'user.name=Workshop Editor', '-c', 'user.email=editor@workshop.local', 'commit', '-m', message], () => {});
+  });
+}
 
 // ---------- helpers ----------------------------------------------------------
 
@@ -726,6 +744,9 @@ router.post('/session/:code/content', (req, res) => {
     sec[field] = value;
   }
   try { saveConfig(config); } catch (e) { return res.status(500).json({ error: 'Could not save config.' }); }
+  // Commit image changes (and the config that references them) to git.
+  const isImage = (scope === 'robot' && field === 'images') || (scope === 'section' && field === 'image') || (scope === 'meta' && field === 'finalImage');
+  if (isImage) autoCommit(`Editor: update ${scope}${sectionKey ? ' ' + sectionKey : ''} image`, ['config/workshop.json', 'assets/uploads']);
   logActivity({ session_code: s.code, action: 'content_edit', new_value: `${scope}.${sectionKey ? sectionKey + '.' : ''}${field}` });
   ok(res, s.code, req);
 });
