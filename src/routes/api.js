@@ -6,7 +6,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const express = require('express');
 const QRCode = require('qrcode');
-const { db, logActivity, UPLOADS_DIR } = require('../db');
+const { db, logActivity, UPLOADS_DIR, RECORDINGS_DIR } = require('../db');
 const { loadConfig, saveConfig } = require('../config');
 const { sessionCode, uid } = require('../lib/ids');
 const { assignGroups } = require('../lib/grouping');
@@ -775,10 +775,40 @@ router.post('/session/:code/audio', (req, res) => {
   const buf = Buffer.from(m[2], 'base64');
   if (buf.length > 80 * 1024 * 1024) return res.status(413).json({ error: 'Recording too large (max 80 MB).' });
   let ext = m[1].split('/')[1].replace(/;.*$/, '').replace('mpeg', 'mp3').replace('x-m4a', 'm4a').replace(/[^a-z0-9]/gi, '') || 'webm';
-  const name = `${s.code}_rec_${Date.now()}.${ext}`;
-  try { fs.writeFileSync(path.join(UPLOADS_DIR, name), buf); }
+  const label = String(req.body.label || '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+  const name = `${s.code}_${label || 'rec'}_${Date.now()}.${ext}`;
+  try { fs.writeFileSync(path.join(RECORDINGS_DIR, name), buf); } // persistent disk on Render
   catch (e) { return res.status(500).json({ error: 'Could not save recording.' }); }
-  res.json({ ok: true, url: `/assets/uploads/${name}` });
+  logActivity({ session_code: s.code, action: 'audio', new_value: name });
+  res.json({ ok: true, url: `/recordings/${name}` });
+});
+
+// List a session's saved recordings + transcripts (for retrieval from the server).
+router.get('/session/:code/recordings', (req, res) => {
+  const s = getSession(req.params.code);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  const rows = db
+    .prepare('SELECT id, section_order, label, text, audio_url, created_at FROM transcripts WHERE session_code = ? ORDER BY section_order, created_at')
+    .all(s.code);
+  res.json({
+    items: rows.map((r) => ({
+      id: r.id, sectionOrder: r.section_order, label: r.label,
+      audioUrl: r.audio_url, hasTranscript: !!(r.text && r.text.trim()),
+      createdAt: r.created_at,
+    })),
+  });
+});
+
+// Download one transcript segment as a .txt file.
+router.get('/session/:code/transcript/:id', (req, res) => {
+  const s = getSession(req.params.code);
+  if (!s) return res.status(404).send('not found');
+  const row = db.prepare('SELECT * FROM transcripts WHERE id = ? AND session_code = ?').get(req.params.id, s.code);
+  if (!row) return res.status(404).send('not found');
+  const fname = `${s.code}_round${row.section_order}_transcript.txt`;
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+  res.send(`${row.label || 'Transcript'} — round ${row.section_order}\n\n${row.text || ''}`);
 });
 
 // Append a transcript segment for a section (each round + its discussion keep

@@ -3,6 +3,7 @@
 const path = require('path');
 const express = require('express');
 const apiRouter = require('./src/routes/api');
+const { RECORDINGS_DIR } = require('./src/db');
 
 const app = express();
 // Behind a hosting proxy/tunnel so req.protocol + forwarded host resolve correctly
@@ -15,6 +16,10 @@ app.get('/healthz', (req, res) => res.json({ ok: true, ts: Date.now() }));
 
 // Static assets and front-end views (uploads live under assets/uploads).
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
+// Audio recordings from the persistent disk, forced to download.
+app.use('/recordings', express.static(RECORDINGS_DIR, {
+  setHeaders: (res) => res.setHeader('Content-Disposition', 'attachment'),
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API.

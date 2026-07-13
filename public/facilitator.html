@@ -124,6 +124,10 @@
           <label class="check mini"><input type="checkbox" id="autoRec"> Auto-record each round — starts, stops, saves &amp; downloads audio + transcript automatically on every slide change (Chrome/Edge).</label>
           <div class="mini mute" id="recState">off</div>
           <textarea id="transcript" readonly placeholder="Live transcript appears here during a round…" style="min-height:110px; margin-top:8px;"></textarea>
+          <div class="spread" style="margin-top:8px;"><div class="label">SAVED ON SERVER</div>
+            <button id="refreshRecs" class="small">↻</button></div>
+          <p class="mini mute">Persist on the server (survive restarts on Render) — download here anytime.</p>
+          <div id="recList" class="col mini" style="gap:4px;"></div>
         </div>
       </div>
 
@@ -209,6 +213,7 @@ function boot() {
   wire();
   loadEmails();
   setInterval(loadEmails, 15000); // keep the sign-up count fresh
+  loadRecordings();
 }
 
 function onState(s) {
@@ -444,6 +449,25 @@ function renderExports(s) {
   el('briefBtn').href = `/api/session/${WS.session}/export/brief`;
 }
 
+// ---- Saved recordings (server-persisted) -----------------------------------
+async function loadRecordings() {
+  try {
+    const r = await WS.get(`/session/${WS.session}/recordings`);
+    const list = el('recList'); clear(list);
+    if (!r.items.length) { list.appendChild(h('span', { class:'mute mini', text:'None yet.' })); return; }
+    for (const it of r.items) {
+      const row = h('div', { class:'row-item mini' }, [
+        h('span', { text: it.label || ('Round ' + it.sectionOrder) }),
+        h('span', { style:'margin-left:auto;' }, [
+          it.audioUrl ? h('a', { class:'btn small', href: it.audioUrl, download:'', style:'margin-right:6px;' }, '⬇ audio') : h('span', { class:'mute', text:'no audio ' }),
+          it.hasTranscript ? h('a', { class:'btn small', href:`/api/session/${WS.session}/transcript/${it.id}`, download:'' }, '⬇ text') : null,
+        ]),
+      ]);
+      list.appendChild(row);
+    }
+  } catch (_) {}
+}
+
 // ---- Report sign-ups (consented emails) ------------------------------------
 let emailsShown = false, emailsCache = [];
 async function loadEmails() {
@@ -539,12 +563,13 @@ function finalizeSegment() {
       const base = `${WS.session}_round${section}${label.includes('Discussion') ? '_discussion' : ''}`;
       if (blob.size) downloadBlob(blob, base + '_audio.webm');
       let audioUrl = null;
-      try { const r = await WS.post(`/session/${WS.session}/audio`, { dataUrl: await blobToDataUrl(blob) }); audioUrl = r.url; } catch (_) {}
+      try { const r = await WS.post(`/session/${WS.session}/audio`, { dataUrl: await blobToDataUrl(blob), label }); audioUrl = r.url; } catch (_) {}
       if (text) {
         WS.post(`/session/${WS.session}/transcript`, { sectionOrder: section, label, text, audioUrl }).catch(() => {});
         downloadBlob(new Blob([text], { type: 'text/plain' }), base + '_transcript.txt');
       }
       toast('Saved ' + label + ' recording');
+      loadRecordings();
     };
     mediaRec.stop();
   }
@@ -608,6 +633,7 @@ function wire() {
     .then((r) => { if (r) toast(id === 'simPeople' ? '+2 synthetic people' : (r.group ? r.group + ' submitted' : 'submission simulated')); }));
   sim('simPeople'); sim('simSubmit');
 
+  el('refreshRecs').addEventListener('click', loadRecordings);
   el('autoRec').addEventListener('change', async (e) => {
     if (e.target.checked) {
       try {

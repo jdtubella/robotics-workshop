@@ -158,6 +158,11 @@ ensureColumn('sessions', 'content', 'TEXT'); // per-session content overrides (e
 const UPLOADS_DIR = path.join(__dirname, '..', 'assets', 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
+// Audio recordings are runtime data — store them next to the DB (the persistent
+// disk on Render) so they survive restarts/redeploys, not in the repo.
+const RECORDINGS_DIR = path.join(DB_DIR, 'recordings');
+if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
+
 function logActivity({ session_code, device, actor, action, prev_value, new_value }) {
   db.prepare(
     `INSERT INTO activity_log (session_code, device, actor, action, prev_value, new_value, created_at)
@@ -173,4 +178,4 @@ function logActivity({ session_code, device, actor, action, prev_value, new_valu
   );
 }
 
-module.exports = { db, logActivity, DB_PATH, UPLOADS_DIR };
+module.exports = { db, logActivity, DB_PATH, UPLOADS_DIR, RECORDINGS_DIR };
