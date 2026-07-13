@@ -6,7 +6,7 @@ const path = require('path');
 const express = require('express');
 const QRCode = require('qrcode');
 const { db, logActivity, UPLOADS_DIR } = require('../db');
-const { loadConfig } = require('../config');
+const { loadConfig, saveConfig } = require('../config');
 const { sessionCode, uid } = require('../lib/ids');
 const { assignGroups } = require('../lib/grouping');
 const { renderSection, buildBriefPackage } = require('../lib/export');
@@ -143,36 +143,37 @@ function buildState(code, { participantId } = {}) {
   const cfg = safeConfig();
   const { rows: participants, map: memberMap } = groupMembers(code);
 
-  // Per-session content overrides (edited text + uploaded images), layered over config.
+  // Display text is read LIVE from config (which the editor writes to), with the
+  // seeded section row only as a fallback. Any per-session override wins on top.
   const ov = safeJson2(s.content) || {};
   const secOvAll = ov.sections || {};
+  const pick = (o, k, fallback) => (o && o[k] !== undefined ? o[k] : fallback);
+  const cfgByKey = {};
+  if (cfg && Array.isArray(cfg.sections)) for (const cs of cfg.sections) cfgByKey[cs.key] = cs;
 
   const groups = db.prepare('SELECT * FROM groups WHERE session_code = ? ORDER BY sort_order').all(code);
   const sections = db
     .prepare('SELECT section_order, key, title FROM sections WHERE session_code = ? ORDER BY section_order')
     .all(code)
-    .map((x) => ({ ...x, title: (secOvAll[x.key] && secOvAll[x.key].title) || x.title }));
+    .map((x) => ({ ...x, title: pick(secOvAll[x.key], 'title', (cfgByKey[x.key] || {}).title || x.title) }));
   const currentSectionRow = s.current_section
     ? db.prepare('SELECT * FROM sections WHERE session_code = ? AND section_order = ?').get(code, s.current_section)
     : null;
-  // Scenario + discussion prompts come from config by section key (or an override).
-  const cfgSection = cfg && Array.isArray(cfg.sections) && currentSectionRow
-    ? cfg.sections.find((x) => x.key === currentSectionRow.key)
-    : null;
+  const cfgSection = currentSectionRow ? (cfgByKey[currentSectionRow.key] || {}) : {};
   const secOv = currentSectionRow ? (secOvAll[currentSectionRow.key] || {}) : {};
-  const pick = (o, k, fallback) => (o[k] !== undefined ? o[k] : fallback);
+  const secVal = (field, dbFallback) => pick(secOv, field, cfgSection[field] != null ? cfgSection[field] : dbFallback);
   const currentSection = currentSectionRow
     ? {
         order: currentSectionRow.section_order,
         key: currentSectionRow.key,
-        title: pick(secOv, 'title', currentSectionRow.title),
-        objective: pick(secOv, 'objective', currentSectionRow.objective),
-        mainPrompt: pick(secOv, 'mainPrompt', currentSectionRow.main_prompt),
-        image: pick(secOv, 'image', currentSectionRow.image),
+        title: secVal('title', currentSectionRow.title),
+        objective: secVal('objective', currentSectionRow.objective),
+        mainPrompt: secVal('mainPrompt', currentSectionRow.main_prompt),
+        image: secVal('image', currentSectionRow.image),
         defaultTimer: currentSectionRow.default_timer,
         fields: JSON.parse(currentSectionRow.fields_json || '[]'),
-        scenario: pick(secOv, 'scenario', cfgSection ? cfgSection.scenario || '' : ''),
-        discuss: pick(secOv, 'discuss', cfgSection && Array.isArray(cfgSection.discuss) ? cfgSection.discuss : []),
+        scenario: secVal('scenario', ''),
+        discuss: pick(secOv, 'discuss', Array.isArray(cfgSection.discuss) ? cfgSection.discuss : []),
       }
     : null;
 
@@ -702,24 +703,29 @@ router.post('/session/:code/note', (req, res) => {
 
 // ---------- live content editing ---------------------------------------------
 
-// Merge a single edited field into this session's content overrides. scope is
-// 'meta' | 'robot' | 'section' (section requires sectionKey). value may be a
-// string or an array (for list fields like assumptions/discuss).
+// Save an edited field into config/workshop.json so it becomes the default for
+// THIS session and every future session. scope is 'meta' | 'robot' | 'section'
+// (section requires sectionKey). value may be a string or an array.
+const META_FIELDS = ['workshopTitle', 'purpose', 'disclaimer', 'finalImage'];
 router.post('/session/:code/content', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return;
   const { scope, sectionKey, field, value } = req.body;
   if (!field || !['meta', 'robot', 'section'].includes(scope)) return res.status(400).json({ error: 'bad content update' });
-  const content = safeJson2(s.content) || {};
-  if (scope === 'section') {
-    if (!sectionKey) return res.status(400).json({ error: 'sectionKey required' });
-    content.sections = content.sections || {};
-    content.sections[sectionKey] = content.sections[sectionKey] || {};
-    content.sections[sectionKey][field] = value;
+  let config;
+  try { config = loadConfig(); } catch (e) { return res.status(500).json({ error: 'Could not read config.' }); }
+
+  if (scope === 'meta') {
+    if (!META_FIELDS.includes(field)) return res.status(400).json({ error: 'unknown meta field' });
+    config[field] = value;
+  } else if (scope === 'robot') {
+    config.robot = config.robot || {};
+    config.robot[field] = value;
   } else {
-    content[scope] = content[scope] || {};
-    content[scope][field] = value;
+    const sec = (config.sections || []).find((x) => x.key === sectionKey);
+    if (!sec) return res.status(400).json({ error: 'unknown section' });
+    sec[field] = value;
   }
-  db.prepare('UPDATE sessions SET content = ? WHERE code = ?').run(JSON.stringify(content), s.code);
+  try { saveConfig(config); } catch (e) { return res.status(500).json({ error: 'Could not save config.' }); }
   logActivity({ session_code: s.code, action: 'content_edit', new_value: `${scope}.${sectionKey ? sectionKey + '.' : ''}${field}` });
   ok(res, s.code, req);
 });
@@ -736,7 +742,7 @@ router.post('/session/:code/upload', (req, res) => {
   try { fs.writeFileSync(path.join(UPLOADS_DIR, name), buf); }
   catch (e) { return res.status(500).json({ error: 'Could not save image.' }); }
   logActivity({ session_code: s.code, action: 'upload', new_value: name });
-  res.json({ ok: true, url: `/uploads/${name}` });
+  res.json({ ok: true, url: `/assets/uploads/${name}` });
 });
 
 // ---------- control token ----------------------------------------------------

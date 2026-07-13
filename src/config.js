@@ -12,4 +12,9 @@ function loadConfig() {
   return JSON.parse(raw);
 }
 
-module.exports = { loadConfig, CONFIG_PATH };
+// Persist the config back to disk so edits become the default for all future sessions.
+function saveConfig(config) {
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
+}
+
+module.exports = { loadConfig, saveConfig, CONFIG_PATH };

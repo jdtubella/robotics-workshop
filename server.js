@@ -3,7 +3,6 @@
 const path = require('path');
 const express = require('express');
 const apiRouter = require('./src/routes/api');
-const { UPLOADS_DIR } = require('./src/db');
 
 const app = express();
 // Behind a hosting proxy/tunnel so req.protocol + forwarded host resolve correctly
@@ -14,9 +13,8 @@ app.use(express.json({ limit: '25mb' })); // large enough to accept a base64 ima
 // Lightweight health check for uptime monitors / keep-warm pings.
 app.get('/healthz', (req, res) => res.json({ ok: true, ts: Date.now() }));
 
-// Static assets and front-end views.
+// Static assets and front-end views (uploads live under assets/uploads).
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
-app.use('/uploads', express.static(UPLOADS_DIR)); // facilitator-uploaded images
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API.

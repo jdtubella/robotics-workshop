@@ -142,8 +142,9 @@ ensureColumn('sessions', 'spin', 'TEXT'); // transient wheel-of-fortune spin sig
 ensureColumn('groups', 'presented_round', 'INTEGER'); // round in which a group presented (persists across rounds)
 ensureColumn('sessions', 'content', 'TEXT'); // per-session content overrides (edited display text + uploaded images)
 
-// Uploaded images live next to the DB so they persist on a mounted disk.
-const UPLOADS_DIR = path.join(DB_DIR, 'uploads');
+// Uploaded images live under assets/ so they're committed with the repo and
+// deploy alongside the config that references them.
+const UPLOADS_DIR = path.join(__dirname, '..', 'assets', 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 function logActivity({ session_code, device, actor, action, prev_value, new_value }) {
