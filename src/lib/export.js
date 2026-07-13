@@ -104,6 +104,7 @@ function renderSection(code, order, { heading = '##' } = {}) {
     lines.push(`${heading}# Room Transcript`);
     lines.push('');
     for (const t of transcripts) {
+      if (t.label) lines.push(`${heading}## ${esc(t.label)}`);
       if (t.audio_url) lines.push(`_Audio: ${esc(t.audio_url)}_\n`);
       lines.push(esc(t.text));
       lines.push('');

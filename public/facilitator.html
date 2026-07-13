@@ -16,6 +16,15 @@
   .viewonly { opacity:0.5; pointer-events:none; }
   /* Simulate / testing buttons — dashed blue so they read as non-production. */
   #editToggle.active { background:var(--sel); border-color:var(--sel); color:#04121a; }
+  .rec-indicator { display:inline-flex; align-items:center; gap:7px; font-family:var(--mono); font-size:0.72rem;
+    letter-spacing:0.12em; color:#ff5252; font-weight:700; }
+  .rec-dot { width:11px; height:11px; border-radius:50%; background:#ff2d2d; box-shadow:0 0 0 0 rgba(255,45,45,0.7);
+    animation: recpulse 1.3s infinite; }
+  @keyframes recpulse {
+    0% { box-shadow:0 0 0 0 rgba(255,45,45,0.7); }
+    70% { box-shadow:0 0 0 10px rgba(255,45,45,0); }
+    100% { box-shadow:0 0 0 0 rgba(255,45,45,0); }
+  }
   .sim { background:transparent; border:1px dashed var(--sel); color:var(--sel); }
   .sim:hover { background:rgba(56,189,248,0.12); border-color:var(--sel); color:#bfe9ff; }
 </style>
@@ -108,18 +117,13 @@
           <div id="noteList" class="col mini" style="gap:4px;"></div>
         </div>
 
-        <!-- Record + transcribe -->
+        <!-- Record + transcribe (auto per round) -->
         <div class="panel col">
           <div class="spread"><div class="label">🎙 RECORD &amp; TRANSCRIBE</div>
-            <span class="mini mute" id="recState">idle</span></div>
-          <p class="mini mute">Records the room and live-transcribes it (Chrome/Edge). Saves to the current round's transcript and into the export.</p>
-          <div class="btn-group">
-            <button id="recStart" class="primary">● Start</button>
-            <button id="recStop" disabled>■ Stop</button>
-            <button id="recSave">Save transcript</button>
-            <a id="recDownload" class="btn small hidden" download="recording.webm">⬇ Audio</a>
-          </div>
-          <textarea id="transcript" placeholder="Live transcript appears here — you can also edit it." style="min-height:110px; margin-top:8px;"></textarea>
+            <span class="rec-indicator hidden" id="recIndicator"><span class="rec-dot"></span> REC</span></div>
+          <label class="check mini"><input type="checkbox" id="autoRec"> Auto-record each round — starts, stops, saves &amp; downloads audio + transcript automatically on every slide change (Chrome/Edge).</label>
+          <div class="mini mute" id="recState">off</div>
+          <textarea id="transcript" readonly placeholder="Live transcript appears here during a round…" style="min-height:110px; margin-top:8px;"></textarea>
         </div>
       </div>
 
@@ -232,6 +236,7 @@ function onState(s) {
   renderExports(s);
   el('pubNames').checked = s.session.publicNames;
   el('notesShared').checked = s.session.notesShared;
+  maybeAutoRecord(s);
 }
 
 // Human labels for the fixed (non-round) stages.
@@ -460,29 +465,52 @@ function renderEmails() {
   ]));
 }
 
-// ---- Record + live transcript ----------------------------------------------
+// ---- Auto-record + live transcript (per round) -----------------------------
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recog = null, mediaRec = null, recChunks = [], recAudioUrl = null, recording = false, finalText = '';
-function startRec() {
-  const ta = el('transcript');
-  finalText = ta.value ? ta.value.trim() + ' ' : '';
-  recAudioUrl = null;
+let autoRecEnabled = false, recording = false, currentRecKey = null;
+let recog = null, mediaRec = null, recStream = null, recChunks = [], finalText = '';
+let segSection = 0, segLabel = '';
+
+// Which recordable slide are we on? (rounds and the end presentation)
+function recKey(s) {
+  const st = s.session.status;
+  if (st === 'section') return 'section:' + s.session.currentSection;
+  if (st === 'discussion') return 'discussion:' + s.session.currentSection;
+  return null;
+}
+function showRec(on) { el('recIndicator').classList.toggle('hidden', !on); }
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function blobToDataUrl(blob) { return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); }); }
+
+// Called on every state change — starts/finalizes recording as slides change.
+function maybeAutoRecord(s) {
+  if (!autoRecEnabled) return;
+  const key = recKey(s);
+  if (key === currentRecKey) return;
+  if (recording) finalizeSegment();           // leaving a recordable slide
+  currentRecKey = key;
+  if (key) {
+    segSection = s.session.currentSection || 0;
+    segLabel = s.session.status === 'discussion' ? `Round ${segSection} — Discussion` : `Round ${segSection}`;
+    startSegment();
+  } else {
+    el('recState').textContent = 'auto-record ON — waiting for a round';
+  }
+}
+function startSegment() {
+  finalText = ''; el('transcript').value = '';
   navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-    recChunks = [];
+    recStream = stream; recChunks = [];
     mediaRec = new MediaRecorder(stream);
     mediaRec.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
-    mediaRec.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop());
-      const blob = new Blob(recChunks, { type: mediaRec.mimeType || 'audio/webm' });
-      const dl = el('recDownload'); dl.href = URL.createObjectURL(blob); dl.classList.remove('hidden');
-      const reader = new FileReader();
-      reader.onload = async () => { try { const r = await WS.post(`/session/${WS.session}/audio`, { dataUrl: reader.result }); recAudioUrl = r.url; toast('Audio saved to server'); } catch (e) { toast('Audio save failed (transcript still ok)', true); } };
-      reader.readAsDataURL(blob);
-    };
     mediaRec.start();
-    recording = true;
-    el('recState').textContent = '● RECORDING';
-    el('recStart').disabled = true; el('recStop').disabled = false;
+    recording = true; showRec(true);
+    el('recState').textContent = 'recording ' + segLabel;
     if (SR) {
       recog = new SR();
       recog.continuous = true; recog.interimResults = true; recog.lang = 'en-US';
@@ -492,28 +520,34 @@ function startRec() {
           const r = ev.results[i];
           if (r.isFinal) finalText += r[0].transcript + ' '; else interim += r[0].transcript;
         }
-        ta.value = finalText + interim; ta.scrollTop = ta.scrollHeight;
+        el('transcript').value = finalText + interim; el('transcript').scrollTop = el('transcript').scrollHeight;
       };
       recog.onend = () => { if (recording) { try { recog.start(); } catch (_) {} } };
       try { recog.start(); } catch (_) {}
-    } else {
-      el('recState').textContent = '● RECORDING (no live transcript in this browser — audio only)';
     }
-  }).catch(() => toast('Microphone permission is required to record', true));
+  }).catch(() => { toast('Microphone permission is required', true); autoRecEnabled = false; el('autoRec').checked = false; showRec(false); });
 }
-function stopRec() {
-  recording = false;
+function finalizeSegment() {
+  if (!recording) return;
+  recording = false; showRec(false);
+  const section = segSection, label = segLabel, text = el('transcript').value.trim();
   if (recog) { try { recog.stop(); } catch (_) {} recog = null; }
-  if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop();
-  el('recState').textContent = 'stopped — remember to Save transcript';
-  el('recStart').disabled = false; el('recStop').disabled = true;
-}
-function saveTranscript() {
-  const text = el('transcript').value.trim();
-  if (!text) return toast('Nothing to save yet', true);
-  const order = state && state.session.currentSection;
-  if (!order) return toast('Open a round first', true);
-  post(`/session/${WS.session}/transcript`, { sectionOrder: order, text, audioUrl: recAudioUrl }).then((r) => { if (r) toast('Transcript saved to round ' + order); });
+  if (mediaRec && mediaRec.state !== 'inactive') {
+    mediaRec.onstop = async () => {
+      if (recStream) recStream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(recChunks, { type: (mediaRec && mediaRec.mimeType) || 'audio/webm' });
+      const base = `${WS.session}_round${section}${label.includes('Discussion') ? '_discussion' : ''}`;
+      if (blob.size) downloadBlob(blob, base + '_audio.webm');
+      let audioUrl = null;
+      try { const r = await WS.post(`/session/${WS.session}/audio`, { dataUrl: await blobToDataUrl(blob) }); audioUrl = r.url; } catch (_) {}
+      if (text) {
+        WS.post(`/session/${WS.session}/transcript`, { sectionOrder: section, label, text, audioUrl }).catch(() => {});
+        downloadBlob(new Blob([text], { type: 'text/plain' }), base + '_transcript.txt');
+      }
+      toast('Saved ' + label + ' recording');
+    };
+    mediaRec.stop();
+  }
 }
 
 // ---- actions ---------------------------------------------------------------
@@ -574,9 +608,23 @@ function wire() {
     .then((r) => { if (r) toast(id === 'simPeople' ? '+2 synthetic people' : (r.group ? r.group + ' submitted' : 'submission simulated')); }));
   sim('simPeople'); sim('simSubmit');
 
-  el('recStart').addEventListener('click', startRec);
-  el('recStop').addEventListener('click', stopRec);
-  el('recSave').addEventListener('click', saveTranscript);
+  el('autoRec').addEventListener('change', async (e) => {
+    if (e.target.checked) {
+      try {
+        const st = await navigator.mediaDevices.getUserMedia({ audio: true }); // one-time permission (needs this click)
+        st.getTracks().forEach((t) => t.stop());
+        autoRecEnabled = true; el('recState').textContent = 'auto-record ON';
+        if (!SR) toast('Audio will record, but live transcript needs Chrome/Edge', true);
+        currentRecKey = null;
+        if (state) maybeAutoRecord(state);
+      } catch (_) { e.target.checked = false; toast('Microphone permission is required', true); }
+    } else {
+      autoRecEnabled = false;
+      if (recording) finalizeSegment();
+      currentRecKey = null;
+      el('recState').textContent = 'off';
+    }
+  });
 
   el('showEmails').addEventListener('click', () => {
     emailsShown = !emailsShown;

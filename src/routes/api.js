@@ -781,13 +781,13 @@ router.post('/session/:code/audio', (req, res) => {
   res.json({ ok: true, url: `/assets/uploads/${name}` });
 });
 
-// Save (replace) the transcript for a section. Used by the live recorder.
+// Append a transcript segment for a section (each round + its discussion keep
+// their own segment). Used by the auto-recorder on every slide change.
 router.post('/session/:code/transcript', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return;
   const order = Number(req.body.sectionOrder) || s.current_section || 0;
   const text = String(req.body.text || '').trim();
   if (!text) return res.status(400).json({ error: 'Empty transcript.' });
-  db.prepare('DELETE FROM transcripts WHERE session_code = ? AND section_order = ?').run(s.code, order);
   db.prepare('INSERT INTO transcripts (id, session_code, section_order, label, text, audio_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(uid('t'), s.code, order, req.body.label || null, text, req.body.audioUrl || null, Date.now());
   logActivity({ session_code: s.code, action: 'transcript', new_value: `section ${order}` });
