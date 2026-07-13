@@ -2,13 +2,11 @@
   "workshopTitle": "Autonomous Hydrovac PRD Workshop",
   "purpose": "A one-hour stakeholder exercise to define preliminary requirements for a fictional autonomous utility-daylighting hydrovac robot.",
   "disclaimer": "This workshop is designed to generate stakeholder intelligence that may inform a Product Requirements Document. It is not intended to produce a complete, validated, or approved PRD in one hour.",
-
   "robot": {
-    "name": "Autonomous Utility Daylighting Hydrovac",
-    "tagline": "SUB-LOGIX · Hydro-Excavation Leaders",
+    "name": "Autonomous Hydrovac",
+    "tagline": "SUB-LOGIX ",
     "images": [
-      "/assets/robot/robot.png",
-      "/assets/robot/round-4.png"
+      "/assets/uploads/VFKC5_1783902856417.png"
     ],
     "task": "The robot receives a list of reported utility locations and verifies each one — it travels to the location, confirms its position, establishes a safe work area, uses pressurized water and vacuum excavation to expose the utility, documents what it finds, reports the verified location, and moves to its next assignment.",
     "environment": "An active construction site with buried electrical, gas, water, data, and communication utilities. Utility records or surface markings have already been provided.",
@@ -45,11 +43,17 @@
       "How should it operate and fail safely?"
     ]
   },
-
   "finalImage": "/assets/robot/final.png",
-
-  "groupNamePool": ["Atlas", "Crane", "Rover", "Dozer", "Survey", "Lift", "Girder", "Anchor"],
-
+  "groupNamePool": [
+    "Atlas",
+    "Crane",
+    "Rover",
+    "Dozer",
+    "Survey",
+    "Lift",
+    "Girder",
+    "Anchor"
+  ],
   "defaults": {
     "targetGroupSize": 4,
     "minGroupSize": 3,
@@ -60,7 +64,6 @@
     "silentThinkingSeconds": 45,
     "defaultSectionTimerSeconds": 660
   },
-
   "sections": [
     {
       "key": "users_capabilities",
@@ -81,10 +84,22 @@
         "What information must it provide after completing the work?"
       ],
       "fields": [
-        { "key": "primary_user", "label": "Primary user" },
-        { "key": "capabilities", "label": "Three essential robot capabilities" },
-        { "key": "limitation", "label": "One major operating limitation" },
-        { "key": "most_important", "label": "Most important product requirement" }
+        {
+          "key": "primary_user",
+          "label": "Primary user"
+        },
+        {
+          "key": "capabilities",
+          "label": "Three essential robot capabilities"
+        },
+        {
+          "key": "limitation",
+          "label": "One major operating limitation"
+        },
+        {
+          "key": "most_important",
+          "label": "Most important product requirement"
+        }
       ]
     },
     {
@@ -107,11 +122,26 @@
         "How are results delivered to downstream crews?"
       ],
       "fields": [
-        { "key": "workflow", "label": "Normal operating workflow" },
-        { "key": "jobsite_setup", "label": "Required jobsite setup" },
-        { "key": "comms_plan", "label": "Communication & intervention plan" },
-        { "key": "critical_failure", "label": "One critical workflow failure" },
-        { "key": "most_important", "label": "Most important workflow requirement" }
+        {
+          "key": "workflow",
+          "label": "Normal operating workflow"
+        },
+        {
+          "key": "jobsite_setup",
+          "label": "Required jobsite setup"
+        },
+        {
+          "key": "comms_plan",
+          "label": "Communication & intervention plan"
+        },
+        {
+          "key": "critical_failure",
+          "label": "One critical workflow failure"
+        },
+        {
+          "key": "most_important",
+          "label": "Most important workflow requirement"
+        }
       ]
     },
     {
@@ -134,15 +164,29 @@
         "What company procedures must be built into its workflow?"
       ],
       "fields": [
-        { "key": "hazards", "label": "Three primary hazards" },
-        { "key": "safety_controls", "label": "Required safety controls" },
-        { "key": "interaction_rules", "label": "Human–robot interaction rules" },
-        { "key": "successful_failure", "label": "Your definition of a successful failure" },
-        { "key": "never_autonomous", "label": "One task the robot must never perform autonomously" }
+        {
+          "key": "hazards",
+          "label": "Three primary hazards"
+        },
+        {
+          "key": "safety_controls",
+          "label": "Required safety controls"
+        },
+        {
+          "key": "interaction_rules",
+          "label": "Human–robot interaction rules"
+        },
+        {
+          "key": "successful_failure",
+          "label": "Your definition of a successful failure"
+        },
+        {
+          "key": "never_autonomous",
+          "label": "One task the robot must never perform autonomously"
+        }
       ]
     }
   ],
-
   "roleCategories": [
     "General contractor",
     "Specialty contractor",
