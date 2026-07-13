@@ -34,14 +34,17 @@ function gatherSection(code, order) {
       'SELECT * FROM notes WHERE session_code = ? AND section_order = ? ORDER BY created_at'
     )
     .all(code, order);
+  const transcripts = db
+    .prepare('SELECT * FROM transcripts WHERE session_code = ? AND section_order = ? ORDER BY created_at')
+    .all(code, order);
   const members = participantsByGroup(code);
-  return { section, groups, subByGroup, notes, members };
+  return { section, groups, subByGroup, notes, transcripts, members };
 }
 
 function renderSection(code, order, { heading = '##' } = {}) {
   const data = gatherSection(code, order);
   if (!data) return `${heading} Section ${order}\n\n_(not found)_\n`;
-  const { section, groups, subByGroup, notes, members } = data;
+  const { section, groups, subByGroup, notes, transcripts, members } = data;
   const fields = JSON.parse(section.fields_json || '[]');
   const lines = [];
 
@@ -94,6 +97,17 @@ function renderSection(code, order, { heading = '##' } = {}) {
       lines.push(`- ${tag}${who}${esc(n.body)}`);
     }
     lines.push('');
+  }
+
+  // Room transcript (from the live recorder)
+  if (transcripts && transcripts.length) {
+    lines.push(`${heading}# Room Transcript`);
+    lines.push('');
+    for (const t of transcripts) {
+      if (t.audio_url) lines.push(`_Audio: ${esc(t.audio_url)}_\n`);
+      lines.push(esc(t.text));
+      lines.push('');
+    }
   }
 
   return lines.join('\n');

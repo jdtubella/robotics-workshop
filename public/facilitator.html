@@ -107,6 +107,20 @@
           </div>
           <div id="noteList" class="col mini" style="gap:4px;"></div>
         </div>
+
+        <!-- Record + transcribe -->
+        <div class="panel col">
+          <div class="spread"><div class="label">🎙 RECORD &amp; TRANSCRIBE</div>
+            <span class="mini mute" id="recState">idle</span></div>
+          <p class="mini mute">Records the room and live-transcribes it (Chrome/Edge). Saves to the current round's transcript and into the export.</p>
+          <div class="btn-group">
+            <button id="recStart" class="primary">● Start</button>
+            <button id="recStop" disabled>■ Stop</button>
+            <button id="recSave">Save transcript</button>
+            <a id="recDownload" class="btn small hidden" download="recording.webm">⬇ Audio</a>
+          </div>
+          <textarea id="transcript" placeholder="Live transcript appears here — you can also edit it." style="min-height:110px; margin-top:8px;"></textarea>
+        </div>
       </div>
 
       <!-- RIGHT: groups + participants + monitor -->
@@ -446,6 +460,62 @@ function renderEmails() {
   ]));
 }
 
+// ---- Record + live transcript ----------------------------------------------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, mediaRec = null, recChunks = [], recAudioUrl = null, recording = false, finalText = '';
+function startRec() {
+  const ta = el('transcript');
+  finalText = ta.value ? ta.value.trim() + ' ' : '';
+  recAudioUrl = null;
+  navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+    recChunks = [];
+    mediaRec = new MediaRecorder(stream);
+    mediaRec.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+    mediaRec.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(recChunks, { type: mediaRec.mimeType || 'audio/webm' });
+      const dl = el('recDownload'); dl.href = URL.createObjectURL(blob); dl.classList.remove('hidden');
+      const reader = new FileReader();
+      reader.onload = async () => { try { const r = await WS.post(`/session/${WS.session}/audio`, { dataUrl: reader.result }); recAudioUrl = r.url; toast('Audio saved to server'); } catch (e) { toast('Audio save failed (transcript still ok)', true); } };
+      reader.readAsDataURL(blob);
+    };
+    mediaRec.start();
+    recording = true;
+    el('recState').textContent = '● RECORDING';
+    el('recStart').disabled = true; el('recStop').disabled = false;
+    if (SR) {
+      recog = new SR();
+      recog.continuous = true; recog.interimResults = true; recog.lang = 'en-US';
+      recog.onresult = (ev) => {
+        let interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const r = ev.results[i];
+          if (r.isFinal) finalText += r[0].transcript + ' '; else interim += r[0].transcript;
+        }
+        ta.value = finalText + interim; ta.scrollTop = ta.scrollHeight;
+      };
+      recog.onend = () => { if (recording) { try { recog.start(); } catch (_) {} } };
+      try { recog.start(); } catch (_) {}
+    } else {
+      el('recState').textContent = '● RECORDING (no live transcript in this browser — audio only)';
+    }
+  }).catch(() => toast('Microphone permission is required to record', true));
+}
+function stopRec() {
+  recording = false;
+  if (recog) { try { recog.stop(); } catch (_) {} recog = null; }
+  if (mediaRec && mediaRec.state !== 'inactive') mediaRec.stop();
+  el('recState').textContent = 'stopped — remember to Save transcript';
+  el('recStart').disabled = false; el('recStop').disabled = true;
+}
+function saveTranscript() {
+  const text = el('transcript').value.trim();
+  if (!text) return toast('Nothing to save yet', true);
+  const order = state && state.session.currentSection;
+  if (!order) return toast('Open a round first', true);
+  post(`/session/${WS.session}/transcript`, { sectionOrder: order, text, audioUrl: recAudioUrl }).then((r) => { if (r) toast('Transcript saved to round ' + order); });
+}
+
 // ---- actions ---------------------------------------------------------------
 async function post(path, body) {
   if (!hasControl && !path.endsWith('/control/take')) { toast('View-only — take control first', true); return; }
@@ -503,6 +573,10 @@ function wire() {
   const sim = (id) => el(id) && el(id).addEventListener('click', () => post(`/session/${WS.session}/${id === 'simPeople' ? 'sim/participants' : 'sim/submission'}`, id === 'simPeople' ? { count: 2 } : {})
     .then((r) => { if (r) toast(id === 'simPeople' ? '+2 synthetic people' : (r.group ? r.group + ' submitted' : 'submission simulated')); }));
   sim('simPeople'); sim('simSubmit');
+
+  el('recStart').addEventListener('click', startRec);
+  el('recStop').addEventListener('click', stopRec);
+  el('recSave').addEventListener('click', saveTranscript);
 
   el('showEmails').addEventListener('click', () => {
     emailsShown = !emailsShown;

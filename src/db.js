@@ -127,6 +127,17 @@ CREATE INDEX IF NOT EXISTS idx_groups_session ON groups(session_code);
 CREATE INDEX IF NOT EXISTS idx_submissions_session ON submissions(session_code, section_order);
 CREATE INDEX IF NOT EXISTS idx_votes_session ON votes(session_code, section_order);
 CREATE INDEX IF NOT EXISTS idx_notes_session ON notes(session_code, section_order);
+
+CREATE TABLE IF NOT EXISTS transcripts (
+  id                TEXT PRIMARY KEY,
+  session_code      TEXT NOT NULL REFERENCES sessions(code) ON DELETE CASCADE,
+  section_order     INTEGER NOT NULL,
+  label             TEXT,
+  text              TEXT NOT NULL,
+  audio_url         TEXT,
+  created_at        INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_transcripts_session ON transcripts(session_code, section_order);
 `);
 
 // --- lightweight migrations (add columns to existing DBs) -------------------
