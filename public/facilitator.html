@@ -151,6 +151,16 @@
           <div class="btn-group" id="exportBtns"></div>
           <a id="briefBtn" class="btn primary" href="#" download>⬇ Download Brief Package (.md)</a>
         </div>
+
+        <div class="panel col">
+          <div class="spread"><div class="label">REPORT SIGN-UPS (<span id="emailCount">0</span>)</div>
+            <div class="btn-group">
+              <button id="showEmails" class="small">Show emails</button>
+              <button id="copyEmails" class="small">Copy</button>
+            </div></div>
+          <p class="mini mute">People who opted in to the follow-up report.</p>
+          <div id="emailList" class="col mini" style="gap:3px;"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -179,6 +189,8 @@ function boot() {
   if (!SIMULATE) document.querySelectorAll('.sim').forEach((b) => b.remove());
   WS.startPolling(2500, onState);
   wire();
+  loadEmails();
+  setInterval(loadEmails, 15000); // keep the sign-up count fresh
 }
 
 function onState(s) {
@@ -413,6 +425,27 @@ function renderExports(s) {
   el('briefBtn').href = `/api/session/${WS.session}/export/brief`;
 }
 
+// ---- Report sign-ups (consented emails) ------------------------------------
+let emailsShown = false, emailsCache = [];
+async function loadEmails() {
+  try {
+    const r = await WS.get(`/session/${WS.session}/emails`);
+    emailsCache = r.people || [];
+    el('emailCount').textContent = r.count;
+    renderEmails();
+  } catch (_) {}
+}
+function renderEmails() {
+  const list = el('emailList'); clear(list);
+  if (!emailsShown) { list.appendChild(h('span', { class:'mute mini', text:'(hidden — click "Show emails")' })); return; }
+  if (!emailsCache.length) { list.appendChild(h('span', { class:'mute mini', text:'No sign-ups yet.' })); return; }
+  for (const p of emailsCache) list.appendChild(h('div', { class:'row-item mini' }, [
+    h('span', { text: p.name }),
+    h('span', { class:'mute', text: p.company || '' }),
+    h('span', { style:'margin-left:auto;', class:'accent', text: p.email }),
+  ]));
+}
+
 // ---- actions ---------------------------------------------------------------
 async function post(path, body) {
   if (!hasControl && !path.endsWith('/control/take')) { toast('View-only — take control first', true); return; }
@@ -470,6 +503,18 @@ function wire() {
   const sim = (id) => el(id) && el(id).addEventListener('click', () => post(`/session/${WS.session}/${id === 'simPeople' ? 'sim/participants' : 'sim/submission'}`, id === 'simPeople' ? { count: 2 } : {})
     .then((r) => { if (r) toast(id === 'simPeople' ? '+2 synthetic people' : (r.group ? r.group + ' submitted' : 'submission simulated')); }));
   sim('simPeople'); sim('simSubmit');
+
+  el('showEmails').addEventListener('click', () => {
+    emailsShown = !emailsShown;
+    el('showEmails').textContent = emailsShown ? 'Hide emails' : 'Show emails';
+    loadEmails();
+  });
+  el('copyEmails').addEventListener('click', async () => {
+    await loadEmails();
+    if (!emailsCache.length) return toast('No emails to copy', true);
+    try { await navigator.clipboard.writeText(emailsCache.map((p) => p.email).join(', ')); toast(`${emailsCache.length} emails copied`); }
+    catch (_) { toast('Copy failed', true); }
+  });
 }
 
 function showWarnings(r) {

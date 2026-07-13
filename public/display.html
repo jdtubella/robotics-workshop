@@ -26,6 +26,8 @@
     border-radius:var(--radius); cursor:pointer; opacity:0.6; transition:opacity .15s, border-color .15s, transform .1s; }
   .thumb:hover { opacity:1; transform:translateY(-2px); }
   .thumb.active { border-color:var(--accent); opacity:1; }
+  .ai-note { font-family:var(--mono); font-size:0.72rem; color:var(--text-mute); text-transform:uppercase;
+    letter-spacing:0.08em; margin-top:8px; }
   /* Compact header for round slides — frees vertical room so the image scales up. */
   .compact-head .head { margin-bottom: 8px; padding: 2px 0; }
   .compact-head .subbar { margin-bottom: 10px; padding: 7px 14px; }
@@ -86,6 +88,7 @@ function viewSignature(s) {
     parts: s.participants.map((p) => [p.id, p.name, p.company, p.groupId, p.isPresenter, p.isRecorder]),
     groups: s.groups.map((g) => [g.id, g.name, g.status, g.heardCount, g.memberIds.join(',')]),
     subs: (s.submissions || []).map((x) => [x.id, x.groupId, x.submitted, x.summary]),
+    selAns: (s.selectedGroupAnswers || []).map((a) => [a.sectionOrder, a.summary, a.answers.length]),
     notes: (s.sharedNotes || []).map((n) => [n.id, n.body, n.keyPoint]),
     robot: s.config && s.config.robot ? s.config.robot.name : null,
   });
@@ -193,7 +196,11 @@ function imageGallery(images, featureDefault, key, opts = {}) {
       thumbs.appendChild(t);
     }
   }
-  return h('div', { class: 'gallery' + (opts.center ? ' center' : ''), style: opts.style || '' }, [feature, list.length > 1 ? thumbs : null]);
+  return h('div', { class: 'gallery' + (opts.center ? ' center' : ''), style: opts.style || '' }, [
+    feature,
+    list.length > 1 ? thumbs : null,
+    h('div', { class: 'ai-note', text: '⚠ AI-generated concept — this is not a real robot.' }),
+  ]);
 }
 
 // Truck-tire "wheel of fortune". Segments are the groups that haven't presented
@@ -278,7 +285,10 @@ function welcome(state) {
           ]),
         ]),
       ]),
-      h('div', {}, [ h('img', { class:'robot-img', src: (state.config && state.config.welcomeImage) || (r && r.images && r.images[0]) || '/assets/robot/robot-placeholder.svg' }) ]),
+      h('div', {}, [
+        h('img', { class:'robot-img', src: (state.config && state.config.welcomeImage) || (r && r.images && r.images[0]) || '/assets/robot/robot-placeholder.svg' }),
+        h('div', { class:'ai-note', text:'⚠ AI-generated concept — this is not a real robot.' }),
+      ]),
     ]),
   ]);
   return col;
@@ -397,22 +407,29 @@ function section(state) {
 
 function discussion(state) {
   const g = state.groups.find((x) => x.id === state.session.selectedGroupId);
-  const sub = (state.submissions || []).find((s) => s.groupId === (g && g.id));
-  const sec = state.currentSection || {};
   const pById = indexBy(state.participants, 'id');
-  const fields = sub && sub.response ? (sec.fields||[]).filter(f => sub.response[f.key]) : [];
+  const answers = state.selectedGroupAnswers || [];
+
+  // Render each round the group answered: headline + its field answers.
+  const sectionBlocks = answers.map((a) => h('div', { class:'panel', style:'margin-top:14px;' }, [
+    h('div', { class:'spread' }, [
+      h('div', { class:'label', text: `ROUND ${a.sectionOrder} — ${a.title}` }),
+      a.submitted ? null : h('span', { class:'pill st-working', style:'font-size:0.65rem;' }, [ h('span',{class:'dot'}), 'DRAFT' ]),
+    ]),
+    a.summary ? h('p', { class:'accent', style:'font-size:1.25rem; margin-top:8px;', text: a.summary }) : null,
+    a.answers.length ? h('div', { class:'grid cols-2', style:'margin-top:10px;' }, a.answers.map((f) => h('div', { class:'panel', style:'background:var(--bg-2);' }, [
+      h('div', { class:'label', text: f.label }),
+      h('div', { class:'dim', style:'margin-top:6px;', text: f.value }),
+    ]))) : null,
+  ]));
+
   return h('div', { class:'col grow selected-pop' }, [
     head(state, { timer: ensureTimerSmall() }),
-    h('div', { class:'label', text:`NOW PRESENTING — ROUND ${sec.order||''}` }),
-    h('h1', { class:'display', style:'font-size:4rem;', text: g ? g.name : 'GROUP' }),
+    h('div', { class:'label', text:'NOW PRESENTING' }),
+    h('h1', { class:'display', style:'font-size:3.6rem;', text: g ? g.name : 'GROUP' }),
     g ? h('div', { class:'wrap-cols' }, g.memberIds.map(id => { const p=pById.get(id); return p? h('span',{class:'chip',text: state.session.publicNames? p.name : 'Member'}):null; }).filter(Boolean)) : null,
-    sub && sub.summary ? h('div', { class:'panel hud', style:'margin-top:16px;' }, [
-      h('div', { class:'label', text:'COLLECTIVE ANSWER' }),
-      h('p', { style:'font-size:1.4rem; margin-top:8px;', text: sub.summary }),
-    ]) : h('div', { class:'banner', style:'margin-top:16px;', text:'Group is presenting…' }),
-    fields.length ? h('div', { class:'grid cols-2', style:'margin-top:14px;' }, fields.map(f => h('div',{class:'panel'},[
-      h('div',{class:'label',text:f.label}), h('div',{class:'dim',style:'margin-top:6px;',text: sub.response[f.key]}),
-    ]))) : null,
+    sectionBlocks.length ? h('div', {}, sectionBlocks)
+      : h('div', { class:'banner', style:'margin-top:16px;', text:'This group hasn\'t submitted any answers yet.' }),
     state.session.notesShared && state.sharedNotes.length ? h('div', { class:'panel', style:'margin-top:14px;' }, [
       h('div',{class:'label',text:'FACILITATOR NOTES'}),
       h('ul',{class:'dim',style:'margin-top:6px;'}, state.sharedNotes.map(n => h('li',{text:(n.keyPoint?'⭐ ':'')+n.body}))),
@@ -442,7 +459,7 @@ function final(state) {
           ]),
         ]),
       ]),
-      img ? h('img', { class:'robot-img', src: img }) : null,
+      img ? h('div', {}, [ h('img', { class:'robot-img', src: img }), h('div', { class:'ai-note', text:'⚠ AI-generated concept — this is not a real robot.' }) ]) : null,
     ]),
   ]);
 }

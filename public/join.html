@@ -64,8 +64,25 @@
 WS.init();
 let present = 'no';
 
+// No ?session=CODE in the URL — let the person type the code from the room display.
+function showCodeEntry() {
+  const box = el('loading');
+  box.classList.remove('hidden');
+  clear(box);
+  const input = h('input', { type: 'text', placeholder: 'e.g. K7QM2', maxlength: '8', style: 'text-transform:uppercase; font-size:1.3rem; letter-spacing:0.1em;' });
+  const go = () => { const c = (input.value || '').trim().toUpperCase(); if (c) location.href = '/join?session=' + encodeURIComponent(c); };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  box.appendChild(h('div', { class: 'col' }, [
+    h('div', { class: 'label', text: 'ENTER SESSION CODE' }),
+    h('p', { class: 'dim', style: 'font-size:0.9rem;', text: 'Type the code shown on the room display to join.' }),
+    input,
+    h('button', { class: 'primary', style: 'margin-top:10px;', onclick: go }, '▶ Join'),
+  ]));
+  setTimeout(() => input.focus(), 50);
+}
+
 async function boot() {
-  if (!WS.session) { el('loading').textContent = 'Missing session code.'; return; }
+  if (!WS.session) { showCodeEntry(); return; }
   // Already registered on this device?
   const existing = WS.loadParticipant();
   if (existing) {

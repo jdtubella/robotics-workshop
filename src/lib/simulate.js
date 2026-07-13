@@ -21,7 +21,39 @@ const ROLES = [
 ];
 
 const BANK = {
-  users_capabilities: {
+  users_workflow: {
+    primary_user: [
+      'Site utility coordinator', 'Excavation foreman', 'Damage-prevention manager', 'GC superintendent',
+    ],
+    capabilities: [
+      'Precise potholing, utility ID, and geotagged documentation of each find',
+      'Autonomous travel between marks, safe-zone setup, and hydro-excavation',
+      'Locate, expose, photograph, and report utilities without a human at the nozzle',
+    ],
+    workflow: [
+      'Receive mission → travel → confirm location → set safe zone → excavate → document → report → next',
+      'Dispatch approved → self-navigate → verify marks → pothole → log find → close/protect → hand off',
+    ],
+    setup_connectivity: [
+      'Pre-marked utilities, clear access route, water refill + spoils plan; LTE with teleop fallback',
+      'Locates provided, exclusion area staged; live link to a remote operator for approvals',
+    ],
+    limitation_failure: [
+      'Debris tank fills mid-dig with no swap plan',
+      'Loses connectivity at an unverified high-consequence utility',
+      'Bounded by onboard water and vacuum-hose reach per setup',
+    ],
+    most_important: [
+      'Never damage a live utility', 'Verified location accuracy over speed',
+      'Reliable results handoff to downstream crews', 'Graceful behaviour on poor connectivity',
+    ],
+    summary: [
+      'Foreman-supervised daylighting robot that never risks a live utility',
+      'Autonomous potholing with a human in the loop for anomalies',
+      'Verify-and-report loop that keeps downstream crews unblocked',
+    ],
+  },
+  _unused_users_capabilities: {
     primary_user: [
       'Site utility coordinator', 'Excavation foreman', 'Damage-prevention manager',
       'Locator technician', 'GC superintendent', 'Underground utility crew lead', 'Field operations manager',

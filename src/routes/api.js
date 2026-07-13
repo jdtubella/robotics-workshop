@@ -94,11 +94,15 @@ function groupMembers(code) {
 // ---------- facilitator stage order -----------------------------------------
 // The stage bar is a reorderable list of flow steps. Fixed stages are plain
 // tokens; each round is "sec:<key>" so it tracks its content, not a position.
+// 'roster' stays a *valid* token (so an existing order keeps it if present), but
+// it's not in the default flow and isn't force-added — intros are skipped.
 const FIXED_STAGE_TOKENS = ['welcome', 'roster', 'robot', 'groups', 'final'];
+const REQUIRED_STAGES = ['welcome', 'robot', 'groups', 'final'];
 
 function defaultStageOrder(code) {
   const secs = db.prepare('SELECT key FROM sections WHERE session_code = ? ORDER BY section_order').all(code);
-  return ['welcome', 'roster', 'groups', 'robot', ...secs.map((x) => 'sec:' + x.key), 'final'];
+  // No 'roster' — individual introductions are skipped in this format.
+  return ['welcome', 'robot', 'groups', ...secs.map((x) => 'sec:' + x.key), 'final'];
 }
 
 // Parse stored order, self-healing against config changes (drop removed rounds,
@@ -120,7 +124,7 @@ function stageOrder(s) {
     if (fi >= 0) order.splice(fi, 0, ...missingRounds);
     else order.push(...missingRounds);
   }
-  for (const t of FIXED_STAGE_TOKENS) if (!present.has(t)) order.push(t); // safety
+  for (const t of REQUIRED_STAGES) if (!present.has(t)) order.push(t); // safety
   return order;
 }
 
@@ -219,6 +223,31 @@ function buildState(code, { participantId } = {}) {
     });
   }
 
+  // Everything the currently-selected (presenting) group submitted, across ALL
+  // rounds — so the end-of-workshop presentation shows their full contribution.
+  let selectedGroupAnswers = [];
+  if (s.selected_group_id) {
+    const rows = db
+      .prepare('SELECT * FROM submissions WHERE session_code = ? AND group_id = ? ORDER BY section_order')
+      .all(code, s.selected_group_id);
+    for (const r of rows) {
+      const secRow = db.prepare('SELECT * FROM sections WHERE session_code = ? AND section_order = ?').get(code, r.section_order);
+      if (!secRow) continue;
+      const secFields = JSON.parse(secRow.fields_json || '[]');
+      const resp = safeJson(r.response_json);
+      const answered = secFields.filter((f) => resp[f.key] && String(resp[f.key]).trim())
+        .map((f) => ({ label: f.label, value: resp[f.key] }));
+      if (!r.summary_response && !answered.length) continue; // nothing to show
+      selectedGroupAnswers.push({
+        sectionOrder: r.section_order,
+        title: pick((secOvAll[secRow.key] || {}), 'title', (cfgByKey[secRow.key] || {}).title || secRow.title),
+        summary: r.summary_response || '',
+        submitted: !!r.submitted,
+        answers: answered,
+      });
+    }
+  }
+
   const notesShared = !!s.notes_shared;
   const sharedNotes = notesShared && s.current_section
     ? db
@@ -282,6 +311,7 @@ function buildState(code, { participantId } = {}) {
       memberIds: (memberMap.get(g.id) || []).map((m) => m.id),
     })),
     submissions,
+    selectedGroupAnswers,
     sharedNotes: sharedNotes.map((n) => ({ id: n.id, groupId: n.group_id, body: n.body, keyPoint: !!n.key_point })),
     me: me
       ? {
@@ -447,6 +477,17 @@ router.post('/session/:code/timer', (req, res) => {
     .run(ends, paused, dur, s.code);
   logActivity({ session_code: s.code, action: `timer_${action}` });
   ok(res, s.code, req);
+});
+
+// Report sign-ups (consented emails) — kept out of the shared state so participant
+// devices never receive other people's emails.
+router.get('/session/:code/emails', (req, res) => {
+  const s = getSession(req.params.code);
+  if (!s) return res.status(404).json({ error: 'not found' });
+  const rows = db
+    .prepare("SELECT name, company, email FROM participants WHERE session_code = ? AND report_consent = 1 AND email IS NOT NULL AND email != '' ORDER BY created_at")
+    .all(s.code);
+  res.json({ count: rows.length, people: rows });
 });
 
 // ---------- registration -----------------------------------------------------

@@ -60,24 +60,24 @@ function renderSection(code, order, { heading = '##' } = {}) {
     lines.push(`${heading}## ${esc(g.name)}`);
     if (mem) lines.push(`_Members: ${mem}_`);
     lines.push('');
-    if (!sub || !sub.submitted) {
+    let resp = {};
+    try { resp = JSON.parse((sub && sub.response_json) || '{}'); } catch (_) {}
+    const answered = sub ? fields.filter((f) => resp[f.key] && String(resp[f.key]).trim()) : [];
+    // Include drafts too — anything with content should never be lost.
+    if (!sub || (!sub.summary_response && !answered.length)) {
       lines.push('> _No submission._');
       lines.push('');
       continue;
     }
+    if (!sub.submitted) lines.push('_(draft — saved but not formally submitted)_\n');
     if (sub.summary_response) {
       lines.push(`**Collective answer:** ${esc(sub.summary_response)}`);
       lines.push('');
     }
-    let resp = {};
-    try { resp = JSON.parse(sub.response_json || '{}'); } catch (_) {}
-    const answered = fields.filter((f) => resp[f.key] && String(resp[f.key]).trim());
-    if (answered.length) {
-      for (const f of answered) {
-        lines.push(`- **${esc(f.label)}:** ${esc(resp[f.key])}`);
-      }
-      lines.push('');
+    for (const f of answered) {
+      lines.push(`- **${esc(f.label)}:** ${esc(resp[f.key])}`);
     }
+    if (answered.length) lines.push('');
   }
 
   // Facilitator notes
