@@ -311,7 +311,8 @@ function robot(state) {
     h('div', { class:'label', text:title }),
     h('ul', { class:'big-list dim', style:'font-size:1.05rem; margin-top:6px;' }, arr.map((x) => h('li', { text:x }))),
   ]) : null;
-  const imgs = uniqueImageList(r.images, '/assets/robot/robot-placeholder.svg');
+  const real = uniqueImageList(r.images);
+  const imgs = real.length ? real : ['/assets/robot/robot-placeholder.svg'];
   return h('div', { class:'col grow' }, [
     head(state),
     h('div', { class:'row grow', style:'gap:44px; align-items:flex-start;' }, [
