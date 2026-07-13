@@ -297,6 +297,10 @@ function buildState(code, { participantId } = {}) {
 function safeJson(s) { try { return JSON.parse(s || '{}'); } catch (_) { return {}; } }
 function safeJson2(s) { try { return s ? JSON.parse(s) : null; } catch (_) { return null; } }
 function safeConfig() { try { return loadConfig(); } catch (_) { return null; } }
+function uniqueImageUrls(value) {
+  if (!Array.isArray(value)) return value;
+  return [...new Set(value.filter(Boolean))];
+}
 
 // ---------- session lifecycle ------------------------------------------------
 
@@ -737,7 +741,7 @@ router.post('/session/:code/content', (req, res) => {
     config[field] = value;
   } else if (scope === 'robot') {
     config.robot = config.robot || {};
-    config.robot[field] = value;
+    config.robot[field] = field === 'images' ? uniqueImageUrls(value) : value;
   } else {
     const sec = (config.sections || []).find((x) => x.key === sectionKey);
     if (!sec) return res.status(400).json({ error: 'unknown section' });

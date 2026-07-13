@@ -160,12 +160,22 @@ function syncTimers(state) {
 
 function escapeXml(s) { return String(s || '').replace(/[<>&]/g, (c) => ({ '<':'&lt;', '>':'&gt;', '&':'&amp;' }[c])); }
 
+function uniqueImageList(images, fallback) {
+  const seen = new Set();
+  const out = [];
+  for (const src of [...(images || []), ...(fallback ? [fallback] : [])]) {
+    if (!src || seen.has(src)) continue;
+    seen.add(src);
+    out.push(src);
+  }
+  return out;
+}
+
 // Feature image + clickable thumbnails. `key` scopes the remembered selection so
 // it survives re-renders but resets when the page (robot vs a round) changes.
 let galleryFeatured = null, galleryKey = null;
 function imageGallery(images, featureDefault, key, opts = {}) {
-  const full = (images || []).filter(Boolean);
-  const list = full.length ? full : (featureDefault ? [featureDefault] : []);
+  const list = uniqueImageList(images, featureDefault);
   if (!list.length) return h('div', {});
   if (galleryKey !== key || !list.includes(galleryFeatured)) {
     galleryKey = key;
@@ -301,7 +311,7 @@ function robot(state) {
     h('div', { class:'label', text:title }),
     h('ul', { class:'big-list dim', style:'font-size:1.05rem; margin-top:6px;' }, arr.map((x) => h('li', { text:x }))),
   ]) : null;
-  const imgs = (r.images && r.images.length) ? r.images : ['/assets/robot/robot-placeholder.svg'];
+  const imgs = uniqueImageList(r.images, '/assets/robot/robot-placeholder.svg');
   return h('div', { class:'col grow' }, [
     head(state),
     h('div', { class:'row grow', style:'gap:44px; align-items:flex-start;' }, [
@@ -365,7 +375,7 @@ function section(state) {
     : null;
   // Feature = this round's image; thumbnails = the other robot photos.
   const gal = (state.config && state.config.robot && state.config.robot.images) || [];
-  const secImages = sec.image ? [sec.image, ...gal.filter((x) => x !== sec.image)] : gal.slice();
+  const secImages = uniqueImageList(sec.image ? [sec.image, ...gal] : gal, sec.image);
   return h('div', { class:'col grow compact-head' }, [
     head(state, { timer: ensureTimerSmall() }),
     subbar,

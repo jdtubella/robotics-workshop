@@ -257,7 +257,10 @@ function renderSection(s) {
 
 // ---- Live display editor ---------------------------------------------------
 function saveContent(scope, sectionKey, field, value) {
-  return post(`/session/${WS.session}/content`, { scope, sectionKey, field, value });
+  const payload = field === 'images' && Array.isArray(value)
+    ? { scope, sectionKey, field, value: [...new Set((value || []).filter(Boolean))] }
+    : { scope, sectionKey, field, value };
+  return post(`/session/${WS.session}/content`, payload);
 }
 function pickImage(cb) { uploadCb = cb; el('imgFile').click(); }
 
