@@ -15,6 +15,17 @@
   .robot-img { width: min(50vw, 760px); max-width: 100%; max-height: 66vh; object-fit: cover;
     border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); }
   .robot-img.sticky { position: sticky; top: 76px; }
+  /* Feature image + thumbnail carousel */
+  .gallery { display:flex; flex-direction:column; gap:14px; min-width:0; }
+  .gallery.center { align-items:center; }
+  .feature-img { width:100%; max-width:100%; object-fit:cover; border:1px solid var(--line);
+    border-radius:var(--radius); background:var(--bg-2); }
+  .thumbs { display:flex; gap:12px; flex-wrap:wrap; }
+  .thumbs.center { justify-content:center; }
+  .thumb { width:132px; height:82px; object-fit:cover; border:2px solid var(--line-2);
+    border-radius:var(--radius); cursor:pointer; opacity:0.6; transition:opacity .15s, border-color .15s, transform .1s; }
+  .thumb:hover { opacity:1; transform:translateY(-2px); }
+  .thumb.active { border-color:var(--accent); opacity:1; }
   /* Compact header for round slides — frees vertical room so the image scales up. */
   .compact-head .head { margin-bottom: 8px; padding: 2px 0; }
   .compact-head .subbar { margin-bottom: 10px; padding: 7px 14px; }
@@ -149,6 +160,32 @@ function syncTimers(state) {
 
 function escapeXml(s) { return String(s || '').replace(/[<>&]/g, (c) => ({ '<':'&lt;', '>':'&gt;', '&':'&amp;' }[c])); }
 
+// Feature image + clickable thumbnails. `key` scopes the remembered selection so
+// it survives re-renders but resets when the page (robot vs a round) changes.
+let galleryFeatured = null, galleryKey = null;
+function imageGallery(images, featureDefault, key, opts = {}) {
+  const full = (images || []).filter(Boolean);
+  const list = full.length ? full : (featureDefault ? [featureDefault] : []);
+  if (!list.length) return h('div', {});
+  if (galleryKey !== key || !list.includes(galleryFeatured)) {
+    galleryKey = key;
+    galleryFeatured = list.includes(featureDefault) ? featureDefault : list[0];
+  }
+  const feature = h('img', { class: 'feature-img', src: galleryFeatured, style: opts.featureStyle || '' });
+  const thumbs = h('div', { class: 'thumbs' + (opts.center ? ' center' : '') });
+  if (list.length > 1) {
+    for (const src of list) {
+      const t = h('img', { class: 'thumb' + (src === galleryFeatured ? ' active' : ''), src });
+      t.addEventListener('click', () => {
+        galleryFeatured = src; feature.src = src;
+        thumbs.querySelectorAll('.thumb').forEach((x) => x.classList.toggle('active', x.getAttribute('src') === src));
+      });
+      thumbs.appendChild(t);
+    }
+  }
+  return h('div', { class: 'gallery' + (opts.center ? ' center' : ''), style: opts.style || '' }, [feature, list.length > 1 ? thumbs : null]);
+}
+
 // Truck-tire "wheel of fortune". Segments are the groups that haven't presented
 // yet; it spins and lands on the chosen group, then reveals the presentation.
 function playWheel(state, spin) {
@@ -264,10 +301,11 @@ function robot(state) {
     h('div', { class:'label', text:title }),
     h('ul', { class:'big-list dim', style:'font-size:1.05rem; margin-top:6px;' }, arr.map((x) => h('li', { text:x }))),
   ]) : null;
+  const imgs = (r.images && r.images.length) ? r.images : ['/assets/robot/robot-placeholder.svg'];
   return h('div', { class:'col grow' }, [
     head(state),
-    h('div', { class:'row grow', style:'gap:48px; align-items:flex-start;' }, [
-      h('div', {}, [ h('img', { class:'robot-img', src: (r.images && r.images[0]) || '/assets/robot/robot-placeholder.svg' }) ]),
+    h('div', { class:'row grow', style:'gap:44px; align-items:flex-start;' }, [
+      imageGallery(imgs, imgs[0], 'robot', { style:'flex:0 0 auto; width:min(54vw,820px);', featureStyle:'max-height:64vh;' }),
       h('div', { class:'col grow' }, [
         h('div', { class:'label', text:'THE FICTIONAL ROBOT' }),
         h('h1', { class:'display', style:'font-size:3.2rem;', text: r.name || 'ROBOT — TBD' }),
@@ -325,6 +363,9 @@ function section(state) {
           sec.discuss.map((q) => h('div', { class:'dim', style:'font-size:0.92rem;', text: '· ' + q }))),
       ])
     : null;
+  // Feature = this round's image; thumbnails = the other robot photos.
+  const gal = (state.config && state.config.robot && state.config.robot.images) || [];
+  const secImages = sec.image ? [sec.image, ...gal.filter((x) => x !== sec.image)] : gal.slice();
   return h('div', { class:'col grow compact-head' }, [
     head(state, { timer: ensureTimerSmall() }),
     subbar,
@@ -336,7 +377,9 @@ function section(state) {
         h('p', { class:'dim', style:'font-size:1rem; max-width:56ch; margin-top:8px;', text: sec.scenario || sec.objective || '' }),
         discuss,
       ]),
-      sec.image ? h('img', { class:'robot-img sticky', src: sec.image, style:'width:min(54vw,860px); max-height:82vh; align-self:flex-start;' }) : null,
+      secImages.length
+        ? imageGallery(secImages, sec.image || secImages[0], 'section:' + (sec.order || ''), { style:'flex:0 0 auto; width:min(52vw,820px);', featureStyle:'max-height:66vh;' })
+        : null,
     ]),
   ]);
 }

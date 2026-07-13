@@ -297,7 +297,7 @@ function renderEditor(s) {
       listField('What we already know', robot.assumptions, (v) => saveContent('robot', null, 'assumptions', v)),
       listField('Operating limits', robot.constraints, (v) => saveContent('robot', null, 'constraints', v)),
       listField('Your job to define', robot.unresolvedQuestions, (v) => saveContent('robot', null, 'unresolvedQuestions', v)),
-      imgBtn('Upload robot image', (url) => saveContent('robot', null, 'images', [url]).then(() => toast('Robot image updated'))),
+      imgBtn('Add robot image', (url) => saveContent('robot', null, 'images', [...(robot.images || []), url]).then(() => toast('Robot image added to carousel'))),
     );
   } else if (st === 'section' || st === 'discussion') {
     const sec = s.currentSection;
@@ -319,7 +319,7 @@ function renderEditor(s) {
       textField('Workshop title', cfg.workshopTitle, (v) => saveContent('meta', null, 'workshopTitle', v)),
       textField('Purpose', cfg.purpose, (v) => saveContent('meta', null, 'purpose', v), true),
       textField('Disclaimer', cfg.disclaimer, (v) => saveContent('meta', null, 'disclaimer', v), true),
-      imgBtn('Upload robot / hero image', (url) => saveContent('robot', null, 'images', [url]).then(() => toast('Hero image updated'))),
+      imgBtn('Add robot / hero image', (url) => saveContent('robot', null, 'images', [...(robot.images || []), url]).then(() => toast('Image added to carousel'))),
     );
   }
 }
