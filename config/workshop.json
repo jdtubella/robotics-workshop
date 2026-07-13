@@ -2,17 +2,15 @@
   "workshopTitle": "Product Requirement Document (PRD) Workshop",
   "purpose": "A one-hour stakeholder exercise to define preliminary requirements for a fictional autonomous robot.",
   "disclaimer": "This workshop is designed to generate stakeholder intelligence that may inform a Product Requirements Document. ",
+  "welcomeImage": "/assets/robot/Open.png",
   "robot": {
     "name": "Autonomous Hydrovac",
     "tagline": "SUB-LOGIX ",
     "images": [
-      "/assets/robot/Open.png",
       "/assets/robot/round-1.png",
       "/assets/robot/round-2.png",
       "/assets/robot/round-3.png",
-      "/assets/robot/round-4.png",
-      "/assets/uploads/PH7GV_1783904089564.png",
-      "/assets/uploads/PH7GV_1783904118587.png"
+      "/assets/robot/round-4.png"
     ],
     "task": "The robot receives a list of reported utility locations and verifies each one — it travels to the location, confirms its position, establishes a safe work area, uses pressurized water and vacuum excavation to expose the utility, documents what it finds, reports the verified location, and moves to its next assignment.",
     "environment": "An active construction site with buried electrical, gas, water, data, and communication utilities. Utility records or surface markings have already been provided.",

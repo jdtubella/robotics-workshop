@@ -278,7 +278,7 @@ function welcome(state) {
           ]),
         ]),
       ]),
-      h('div', {}, [ h('img', { class:'robot-img', src: (r && r.images && r.images[0]) || '/assets/robot/robot-placeholder.svg' }) ]),
+      h('div', {}, [ h('img', { class:'robot-img', src: (state.config && state.config.welcomeImage) || (r && r.images && r.images[0]) || '/assets/robot/robot-placeholder.svg' }) ]),
     ]),
   ]);
   return col;

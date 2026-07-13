@@ -235,6 +235,7 @@ function buildState(code, { participantId } = {}) {
       purpose: pick(meta, 'purpose', baseCfg.purpose),
       disclaimer: pick(meta, 'disclaimer', baseCfg.disclaimer),
       robot: { ...(baseCfg.robot || {}), ...(ov.robot || {}) },
+      welcomeImage: pick(meta, 'welcomeImage', baseCfg.welcomeImage),
       finalImage: pick(meta, 'finalImage', baseCfg.finalImage),
       roleCategories: baseCfg.roleCategories,
       defaults: baseCfg.defaults,
@@ -728,7 +729,7 @@ router.post('/session/:code/note', (req, res) => {
 // Save an edited field into config/workshop.json so it becomes the default for
 // THIS session and every future session. scope is 'meta' | 'robot' | 'section'
 // (section requires sectionKey). value may be a string or an array.
-const META_FIELDS = ['workshopTitle', 'purpose', 'disclaimer', 'finalImage'];
+const META_FIELDS = ['workshopTitle', 'purpose', 'disclaimer', 'welcomeImage', 'finalImage'];
 router.post('/session/:code/content', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return;
   const { scope, sectionKey, field, value } = req.body;
