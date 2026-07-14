@@ -49,6 +49,12 @@
     border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); margin-bottom:14px; }
   .subbar .st-chip { display:inline-flex; align-items:center; gap:7px; font-family:var(--mono); font-size:0.8rem;
     text-transform:uppercase; letter-spacing:0.06em; padding:5px 11px; border-radius:999px; border:1px solid var(--line-2); }
+  /* Agenda list */
+  .agenda-list { display:flex; flex-direction:column; gap:10px; }
+  .agenda-row { display:flex; align-items:center; gap:20px; background:var(--bg-3); border:1px solid var(--line);
+    border-left:3px solid var(--accent); border-radius:var(--radius); padding:14px 22px; }
+  .agenda-num { font-family:var(--mono); font-weight:800; font-size:1.4rem; color:var(--accent); min-width:2.2ch; }
+  .agenda-txt { font-size:1.35rem; font-weight:600; letter-spacing:-0.01em; }
   /* Wheel of fortune */
   .wheel-wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; }
   #wheelSpin { transform-box: fill-box; transform-origin: center; }
@@ -84,6 +90,7 @@ function viewSignature(s) {
     sel: s.session.selectedGroupId, pub: s.session.publicNames,
     notesShared: s.session.notesShared, share: s.shareBase,
     secKey: s.currentSection ? s.currentSection.key : null,
+    agenda: s.config ? [s.config.agendaIntro, ...(s.config.agenda || [])].join('|') : null,
     order: s.sections.map((x) => x.title),
     parts: s.participants.map((p) => [p.id, p.name, p.company, p.groupId, p.isPresenter, p.isRecorder]),
     groups: s.groups.map((g) => [g.id, g.name, g.status, g.heardCount, g.memberIds.join(',')]),
@@ -141,6 +148,7 @@ function render(state) {
   let body;
   switch (status) {
     case 'welcome': body = welcome(state); break;
+    case 'agenda': body = agenda(state); break;
     case 'roster': body = roster(state); break;
     case 'robot': body = robot(state); break;
     case 'groups': body = groups(state); break;
@@ -292,6 +300,22 @@ function welcome(state) {
     ]),
   ]);
   return col;
+}
+
+function agenda(state) {
+  const cfg = state.config || {};
+  const items = cfg.agenda || [];
+  const rows = items.map((item, i) => h('div', { class:'agenda-row join-name' }, [
+    h('span', { class:'agenda-num', text: String(i + 1).padStart(2, '0') }),
+    h('span', { class:'agenda-txt', text: item }),
+  ]));
+  return h('div', { class:'col grow' }, [
+    head(state),
+    h('div', { class:'label', text:'BEFORE WE START' }),
+    h('h1', { class:'display', style:'font-size:3rem;', text:'Agenda' }),
+    cfg.agendaIntro ? h('p', { class:'dim', style:'max-width:70ch; font-size:1.12rem; margin-top:6px;', text: cfg.agendaIntro }) : null,
+    h('div', { class:'agenda-list grow', style:'margin-top:22px;' }, rows),
+  ]);
 }
 
 function roster(state) {

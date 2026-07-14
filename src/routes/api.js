@@ -96,13 +96,13 @@ function groupMembers(code) {
 // tokens; each round is "sec:<key>" so it tracks its content, not a position.
 // 'roster' stays a *valid* token (so an existing order keeps it if present), but
 // it's not in the default flow and isn't force-added — intros are skipped.
-const FIXED_STAGE_TOKENS = ['welcome', 'roster', 'robot', 'groups', 'final'];
+const FIXED_STAGE_TOKENS = ['welcome', 'agenda', 'roster', 'robot', 'groups', 'final'];
 const REQUIRED_STAGES = ['welcome', 'robot', 'groups', 'final'];
 
 function defaultStageOrder(code) {
   const secs = db.prepare('SELECT key FROM sections WHERE session_code = ? ORDER BY section_order').all(code);
   // No 'roster' — individual introductions are skipped in this format.
-  return ['welcome', 'robot', 'groups', ...secs.map((x) => 'sec:' + x.key), 'final'];
+  return ['welcome', 'agenda', 'robot', 'groups', ...secs.map((x) => 'sec:' + x.key), 'final'];
 }
 
 // Parse stored order, self-healing against config changes (drop removed rounds,
@@ -263,6 +263,8 @@ function buildState(code, { participantId } = {}) {
       workshopTitle: pick(meta, 'workshopTitle', baseCfg.workshopTitle),
       purpose: pick(meta, 'purpose', baseCfg.purpose),
       disclaimer: pick(meta, 'disclaimer', baseCfg.disclaimer),
+      agendaIntro: pick(meta, 'agendaIntro', baseCfg.agendaIntro),
+      agenda: pick(meta, 'agenda', baseCfg.agenda),
       robot: { ...(baseCfg.robot || {}), ...(ov.robot || {}) },
       welcomeImage: pick(meta, 'welcomeImage', baseCfg.welcomeImage),
       finalImage: pick(meta, 'finalImage', baseCfg.finalImage),
@@ -391,7 +393,7 @@ router.get('/session/:code/qr', async (req, res) => {
 router.post('/session/:code/status', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return;
   const { status } = req.body;
-  const allowed = ['welcome', 'roster', 'robot', 'groups', 'section', 'discussion', 'final'];
+  const allowed = ['welcome', 'agenda', 'roster', 'robot', 'groups', 'section', 'discussion', 'final'];
   if (!allowed.includes(status)) return res.status(400).json({ error: 'bad status' });
   db.prepare('UPDATE sessions SET status = ? WHERE code = ?').run(status, s.code);
   logActivity({ session_code: s.code, action: 'status', prev_value: s.status, new_value: status });
@@ -829,7 +831,7 @@ router.post('/session/:code/transcript', (req, res) => {
 // Save an edited field into config/workshop.json so it becomes the default for
 // THIS session and every future session. scope is 'meta' | 'robot' | 'section'
 // (section requires sectionKey). value may be a string or an array.
-const META_FIELDS = ['workshopTitle', 'purpose', 'disclaimer', 'welcomeImage', 'finalImage'];
+const META_FIELDS = ['workshopTitle', 'purpose', 'disclaimer', 'welcomeImage', 'finalImage', 'agendaIntro', 'agenda'];
 router.post('/session/:code/content', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return;
   const { scope, sectionKey, field, value } = req.body;

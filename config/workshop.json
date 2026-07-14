@@ -3,6 +3,16 @@
   "purpose": "A one-hour stakeholder exercise to define preliminary requirements for a fictional autonomous robot.",
   "disclaimer": "This workshop is designed to generate stakeholder intelligence that may inform a Product Requirements Document. ",
   "welcomeImage": "/assets/robot/Open.png",
+  "agendaIntro": "Here's how the next hour runs. It's fast, hands-on, and done from your phone — small groups, short rounds, and one group presentation at the end. This captures early stakeholder thinking, not final engineering requirements.",
+  "agenda": [
+    "Join & get settled — register on your phone",
+    "Meet the robot — the concept we're defining together",
+    "Group assignments — find your table and roles",
+    "Round 1 · Users, Capabilities & Workflow — what it must do and for whom",
+    "Round 2 · Safety, Failure & Human Interaction — how it stays safe",
+    "Group presentation — one group is picked to share",
+    "Wrap-up & next steps — how your input gets used"
+  ],
   "robot": {
     "name": "Autonomous Hydrovac",
     "tagline": "SUB-LOGIX ",

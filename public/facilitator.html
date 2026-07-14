@@ -245,7 +245,7 @@ function onState(s) {
 }
 
 // Human labels for the fixed (non-round) stages.
-const STAGE_LABELS = { welcome:'Welcome', roster:'Roster', robot:'Robot', groups:'Groups', final:'Final' };
+const STAGE_LABELS = { welcome:'Welcome', agenda:'Agenda', roster:'Roster', robot:'Robot', groups:'Groups', final:'Final' };
 let lastStageSig = null;
 function renderStageNav(s) {
   // Rebuild the bar from the persisted stage order. Guarded so polling never
@@ -347,6 +347,11 @@ function renderEditor(s) {
       sf('title', 'Round title'), sf('mainPrompt', 'Main prompt', true), sf('scenario', 'Scenario', true),
       listField('Discuss', sec.discuss, (v) => saveContent('section', k, 'discuss', v)),
       imgBtn('Upload round image', (url) => saveContent('section', k, 'image', url).then(() => toast('Round image updated'))),
+    );
+  } else if (st === 'agenda') {
+    add(
+      textField('Agenda intro (expectations)', cfg.agendaIntro, (v) => saveContent('meta', null, 'agendaIntro', v), true),
+      listField('Agenda items', cfg.agenda, (v) => saveContent('meta', null, 'agenda', v)),
     );
   } else if (st === 'final') {
     add(
