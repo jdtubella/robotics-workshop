@@ -44,6 +44,12 @@
     border-radius:var(--radius); padding:16px 20px; }
   .roster-card .nm { font-size:1.7rem; font-weight:800; letter-spacing:-0.01em; }
   .roster-card .co { font-size:1.05rem; color:var(--text-dim); margin-top:2px; }
+  .roster-join { flex:0 0 auto; text-align:center; background:var(--bg-2); border:1px solid var(--line);
+    border-radius:var(--radius); padding:20px 26px; }
+  .roster-join .qr img { width:200px; height:200px; }
+  .roster-count { display:flex; align-items:baseline; }
+  .roster-empty { grid-column:1/-1; background:var(--bg-2); border:1px dashed var(--line-2);
+    border-radius:var(--radius); padding:28px 32px; }
   /* Submission status banner */
   .subbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 16px;
     border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); margin-bottom:14px; }
@@ -320,22 +326,45 @@ function agenda(state) {
 
 function roster(state) {
   const showNames = state.session.publicNames;
-  const grid = h('div', { class: 'roster-grid grow', style:'overflow:auto;' });
   const people = state.participants.slice().reverse();
+  const joinHost = (state.shareBase || location.origin).replace(/^https?:\/\//, '');
+
+  // Live scan-to-join panel so latecomers can still hop on from this screen.
+  const joinPanel = h('div', { class:'roster-join' }, [
+    h('div', { class:'label', text:'SCAN TO JOIN' }),
+    h('div', { class:'qr', style:'margin-top:8px;' }, [ getQr(state.session.code) ]),
+    h('div', { class:'mono', style:'margin-top:8px; font-size:0.95rem;', text: joinHost + '/join' }),
+    h('div', { class:'code-big', style:'margin-top:2px;', text: state.session.code }),
+  ]);
+
+  const grid = h('div', { class: 'roster-grid grow', style:'overflow:auto; align-content:flex-start;' });
+  if (!people.length) {
+    grid.appendChild(h('div', { class:'roster-empty' }, [
+      h('div', { class:'label', text:'WAITING FOR PEOPLE TO JOIN' }),
+      h('p', { class:'dim', style:'margin-top:8px;', text:'Names will appear here as people register on their phones.' }),
+    ]));
+  }
   for (const p of people) {
     grid.appendChild(h('div', { class:'roster-card join-name' }, [
       h('div', { class:'nm', text: showNames ? p.name : 'Participant' }),
       h('div', { class:'co', text: showNames ? (p.company || '—') : '' }),
     ]));
   }
+
   return h('div', { class:'col grow' }, [
     head(state),
     h('div', { class:'spread' }, [
       h('div', {}, [ h('div', { class:'label', text:'PARTICIPANTS' }), h('h1', { text: 'Who\'s In The Room' }) ]),
-      h('div', { class:'display', style:'font-size:2.6rem;', text: state.participants.length + ' IN' }),
+      h('div', { class:'roster-count' }, [
+        h('span', { class:'display', style:'font-size:3.2rem;', text: String(state.participants.length) }),
+        h('span', { class:'label', style:'margin-left:10px;', text:'CHECKED IN' }),
+      ]),
     ]),
-    h('div', { style:'height:14px;' }),
-    grid,
+    h('div', { style:'height:16px;' }),
+    h('div', { class:'row grow', style:'gap:36px; align-items:flex-start;' }, [
+      joinPanel,
+      grid,
+    ]),
   ]);
 }
 
