@@ -286,6 +286,7 @@ function buildState(code, { participantId } = {}) {
       timer: timerRemaining(s),
       timerDuration: s.timer_duration,
       stageOrder: stageOrder(s),
+      recordingActive: !!s.recording_active,
     },
     sections,
     currentSection,
@@ -785,6 +786,14 @@ router.post('/session/:code/audio', (req, res) => {
   res.json({ ok: true, url: `/recordings/${name}` });
 });
 
+// Recording on/off signal from the facilitator, so the room display can show a
+// live REC light (the actual capture happens in the facilitator's browser).
+router.post('/session/:code/recording', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  db.prepare('UPDATE sessions SET recording_active = ? WHERE code = ?').run(req.body.active ? 1 : 0, s.code);
+  ok(res, s.code, req);
+});
+
 // List a session's saved recordings + transcripts (for retrieval from the server).
 router.get('/session/:code/recordings', (req, res) => {
   const s = getSession(req.params.code);
@@ -807,7 +816,8 @@ router.get('/session/:code/transcript/:id', (req, res) => {
   if (!s) return res.status(404).send('not found');
   const row = db.prepare('SELECT * FROM transcripts WHERE id = ? AND session_code = ?').get(req.params.id, s.code);
   if (!row) return res.status(404).send('not found');
-  const fname = `${s.code}_round${row.section_order}_transcript.txt`;
+  const slug = String(row.label || `round-${row.section_order}`).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'segment';
+  const fname = `${s.code}_${slug}_transcript.txt`;
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
   res.send(`${row.label || 'Transcript'} — round ${row.section_order}\n\n${row.text || ''}`);

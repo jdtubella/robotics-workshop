@@ -121,9 +121,9 @@
         <div class="panel col">
           <div class="spread"><div class="label">🎙 RECORD &amp; TRANSCRIBE</div>
             <span class="rec-indicator hidden" id="recIndicator"><span class="rec-dot"></span> REC</span></div>
-          <label class="check mini"><input type="checkbox" id="autoRec"> Auto-record each round — starts, stops, saves &amp; downloads audio + transcript automatically on every slide change (Chrome/Edge).</label>
+          <label class="check mini"><input type="checkbox" id="autoRec" checked> Auto-record every slide — starts, stops, saves &amp; downloads audio + transcript automatically on each slide change (Chrome/Edge). On by default.</label>
           <div class="mini mute" id="recState">off</div>
-          <textarea id="transcript" readonly placeholder="Live transcript appears here during a round…" style="min-height:110px; margin-top:8px;"></textarea>
+          <textarea id="transcript" readonly placeholder="Live transcript appears here while recording…" style="min-height:110px; margin-top:8px;"></textarea>
           <div class="spread" style="margin-top:8px;"><div class="label">SAVED ON SERVER</div>
             <button id="refreshRecs" class="small">↻</button></div>
           <p class="mini mute">Persist on the server (survive restarts on Render) — download here anytime.</p>
@@ -214,6 +214,15 @@ function boot() {
   loadEmails();
   setInterval(loadEmails, 15000); // keep the sign-up count fresh
   loadRecordings();
+  // Auto-record is ON by default. Try to arm it silently — this succeeds without
+  // a prompt if mic permission was already granted; otherwise fall back to
+  // "click to start" (the first grant needs a user gesture).
+  if (el('autoRec').checked) {
+    enableAutoRecord().catch(() => {
+      el('autoRec').checked = false;
+      el('recState').textContent = 'off — check the box to start recording (needs mic permission)';
+    });
+  }
 }
 
 function onState(s) {
@@ -500,14 +509,29 @@ let autoRecEnabled = false, recording = false, currentRecKey = null;
 let recog = null, mediaRec = null, recStream = null, recChunks = [], finalText = '';
 let segSection = 0, segLabel = '';
 
-// Which recordable slide are we on? (rounds and the end presentation)
-function recKey(s) {
+// Every slide is its own recording segment. Returns {key, section, label}.
+// `section` is the round number for rounds (0 for the fixed stages) so round
+// audio/transcripts still file under their round; the label keeps them distinct.
+function recInfo(s) {
   const st = s.session.status;
-  if (st === 'section') return 'section:' + s.session.currentSection;
-  if (st === 'discussion') return 'discussion:' + s.session.currentSection;
-  return null;
+  const n = s.session.currentSection || 0;
+  switch (st) {
+    case 'section':    return { key: 'section:' + n,    section: n, label: 'Round ' + n };
+    case 'discussion': return { key: 'discussion:' + n, section: n, label: 'Round ' + n + ' — Discussion' };
+    case 'welcome':    return { key: 'welcome',  section: 0, label: 'Welcome' };
+    case 'agenda':     return { key: 'agenda',   section: 0, label: 'Agenda' };
+    case 'robot':      return { key: 'robot',    section: 0, label: 'Robot Introduction' };
+    case 'roster':     return { key: 'roster',   section: 0, label: "Who's In The Room" };
+    case 'groups':     return { key: 'groups',   section: 0, label: 'Group Assignments' };
+    case 'final':      return { key: 'final',    section: 0, label: 'Wrap-up' };
+    default:           return { key: st || 'stage', section: 0, label: st || 'Stage' };
+  }
 }
-function showRec(on) { el('recIndicator').classList.toggle('hidden', !on); }
+function showRec(on) {
+  el('recIndicator').classList.toggle('hidden', !on);
+  // Tell the server so the room display can show its own REC light.
+  WS.post(`/session/${WS.session}/recording`, { active: !!on }).catch(() => {});
+}
 function downloadBlob(blob, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name;
@@ -517,19 +541,26 @@ function downloadBlob(blob, name) {
 function blobToDataUrl(blob) { return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(blob); }); }
 
 // Called on every state change — starts/finalizes recording as slides change.
+// Arm auto-record (asks for mic permission once). Throws if the mic is denied.
+async function enableAutoRecord() {
+  const st = await navigator.mediaDevices.getUserMedia({ audio: true });
+  st.getTracks().forEach((t) => t.stop());
+  autoRecEnabled = true;
+  el('recState').textContent = 'auto-record ON';
+  if (!SR) toast('Audio will record, but live transcript needs Chrome/Edge', true);
+  currentRecKey = null;
+  if (state) maybeAutoRecord(state);
+}
+
 function maybeAutoRecord(s) {
   if (!autoRecEnabled) return;
-  const key = recKey(s);
-  if (key === currentRecKey) return;
-  if (recording) finalizeSegment();           // leaving a recordable slide
-  currentRecKey = key;
-  if (key) {
-    segSection = s.session.currentSection || 0;
-    segLabel = s.session.status === 'discussion' ? `Round ${segSection} — Discussion` : `Round ${segSection}`;
-    startSegment();
-  } else {
-    el('recState').textContent = 'auto-record ON — waiting for a round';
-  }
+  const info = recInfo(s);
+  if (info.key === currentRecKey) return;
+  if (recording) finalizeSegment();           // leaving the current slide
+  currentRecKey = info.key;
+  segSection = info.section;
+  segLabel = info.label;
+  startSegment();
 }
 function startSegment() {
   finalText = ''; el('transcript').value = '';
@@ -565,7 +596,8 @@ function finalizeSegment() {
     mediaRec.onstop = async () => {
       if (recStream) recStream.getTracks().forEach((t) => t.stop());
       const blob = new Blob(recChunks, { type: (mediaRec && mediaRec.mimeType) || 'audio/webm' });
-      const base = `${WS.session}_round${section}${label.includes('Discussion') ? '_discussion' : ''}`;
+      const slug = label.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'segment';
+      const base = `${WS.session}_${slug}`;
       if (blob.size) downloadBlob(blob, base + '_audio.webm');
       let audioUrl = null;
       try { const r = await WS.post(`/session/${WS.session}/audio`, { dataUrl: await blobToDataUrl(blob), label }); audioUrl = r.url; } catch (_) {}
@@ -639,16 +671,16 @@ function wire() {
   sim('simPeople'); sim('simSubmit');
 
   el('refreshRecs').addEventListener('click', loadRecordings);
+  // If the facilitator closes/navigates away mid-recording, clear the room
+  // display's REC light so it doesn't stay stuck on.
+  window.addEventListener('pagehide', () => {
+    try { navigator.sendBeacon(`/api/session/${WS.session}/recording`, new Blob([JSON.stringify({ active: false })], { type: 'application/json' })); } catch (_) {}
+  });
+
   el('autoRec').addEventListener('change', async (e) => {
     if (e.target.checked) {
-      try {
-        const st = await navigator.mediaDevices.getUserMedia({ audio: true }); // one-time permission (needs this click)
-        st.getTracks().forEach((t) => t.stop());
-        autoRecEnabled = true; el('recState').textContent = 'auto-record ON';
-        if (!SR) toast('Audio will record, but live transcript needs Chrome/Edge', true);
-        currentRecKey = null;
-        if (state) maybeAutoRecord(state);
-      } catch (_) { e.target.checked = false; toast('Microphone permission is required', true); }
+      try { await enableAutoRecord(); }
+      catch (_) { e.target.checked = false; toast('Microphone permission is required', true); }
     } else {
       autoRecEnabled = false;
       if (recording) finalizeSegment();

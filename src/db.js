@@ -152,6 +152,7 @@ ensureColumn('participants', 'sim_answers', 'TEXT'); // canned per-section answe
 ensureColumn('sessions', 'spin', 'TEXT'); // transient wheel-of-fortune spin signal for the display
 ensureColumn('groups', 'presented_round', 'INTEGER'); // round in which a group presented (persists across rounds)
 ensureColumn('sessions', 'content', 'TEXT'); // per-session content overrides (edited display text + uploaded images)
+ensureColumn('sessions', 'recording_active', 'INTEGER NOT NULL DEFAULT 0'); // facilitator is recording -> show REC light on the room display
 
 // Uploaded images live under assets/ so they're committed with the repo and
 // deploy alongside the config that references them.
