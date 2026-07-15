@@ -9,8 +9,7 @@
     "Join & get settled — register on your phone or laptop",
     "Meet the robot — the concept we're defining together",
     "Group assignments — find your table and roles",
-    "Round 1 · Users, Capabilities & Workflow — what it must do and for whom",
-    "Round 2 · Safety, Failure & Human Interaction — how it stays safe",
+    "Define the robot — users, capabilities, workflow & safety, in small groups",
     "Group presentation + conversation — one group is picked to share",
     "Wrap-up"
   ],
@@ -81,23 +80,23 @@
   },
   "sections": [
     {
-      "key": "users_workflow",
-      "title": "Users, Capabilities & Workflow",
+      "key": "define_robot",
+      "title": "Define the Robot",
       "order": 1,
-      "objective": "Define what the robot must do, who uses it, and how it fits into the jobsite workflow.",
-      "mainPrompt": "What must this robot do, for whom, and how does it move through the jobsite — before, during, and after?",
+      "objective": "Define what the robot must do, who uses it, how it fits the jobsite, and how it stays safe when things go wrong.",
+      "mainPrompt": "What must this robot do, for whom, how does it move through the jobsite — and how does it stay safe when things go wrong?",
       "image": "/assets/robot/round-1.png",
       "defaultTimerSeconds": 900,
-      "scenario": "The robot is assigned several reported utility locations on an active construction site. At each, it must travel to the work area, confirm the location and surrounding conditions, establish a safe work zone, expose and document the utility (location, depth, direction, type, condition), protect or close the opening, report the result, and move to the next. It may use cameras, positioning, utility-detection sensors, a robotic boom, pressurized water, vacuum excavation, and remote monitoring or teleoperation. Mid-mission it may hit problems: a blocked location, poor connectivity, a utility not at the expected depth, an unexpected utility, a full debris tank, or a downstream crew waiting on results.",
+      "scenario": "The robot is assigned several reported utility locations on an active construction site. At each, it must travel to the work area, confirm the location and conditions, establish a safe work zone, expose and document the utility, report the result, and move to the next. It brings real hazards together — a large autonomous vehicle, a moving robotic boom, pressurized water, powerful vacuum equipment, open excavations, nearby workers, and live electrical, gas, water, data, and communication utilities. Mid-mission it may hit problems: poor connectivity, a utility not at the expected depth, an unexpected utility, a full debris tank, a failed sensor, or a downstream crew waiting on results. A 'successful failure' isn't nothing going wrong — it's the robot recognizing it cannot safely continue, stopping predictably, protecting people and the utility, communicating what happened, and waiting for an authorized person to recover it.",
       "discuss": [
         "Who is the primary user, and what must the robot be able to do?",
         "What can it decide autonomously vs. what needs human approval?",
-        "What must be ready before the robot arrives on site?",
-        "How should it move through an active jobsite?",
-        "What can it do when connectivity is lost, and when is teleoperation required?",
-        "How are water and excavated material managed?",
-        "What happens when the utility cannot be found?",
-        "How are verified results delivered to downstream crews?"
+        "How should it move through an active jobsite — before, during, and after each dig?",
+        "What are the three greatest hazards?",
+        "Who can stop the robot, and who has the right of way?",
+        "What happens when connectivity is lost or a critical sensor fails?",
+        "What does a 'successful failure' look like?",
+        "What must a human inspect before it restarts?"
       ],
       "fields": [
         {
@@ -113,58 +112,16 @@
           "label": "How it fits the jobsite workflow (before / during / after)"
         },
         {
-          "key": "setup_connectivity",
-          "label": "Required jobsite setup & connectivity plan"
-        },
-        {
-          "key": "limitation_failure",
-          "label": "Biggest operating limitation or failure mode"
-        },
-        {
-          "key": "most_important",
-          "label": "Most important requirement"
-        }
-      ]
-    },
-    {
-      "key": "safety_failure",
-      "title": "Safety, Failure & Human Interaction",
-      "order": 2,
-      "objective": "Define how the robot should operate, interact, stop, and recover safely.",
-      "mainPrompt": "How should the system prevent harm, stop safely, and recover when assumptions fail?",
-      "image": "/assets/robot/round-3.png",
-      "defaultTimerSeconds": 780,
-      "scenario": "The robot combines several hazards: a large autonomous vehicle, a moving robotic boom, pressurized water, powerful vacuum equipment, open excavations, nearby workers and equipment, and live electrical, gas, water, data, and communication utilities. A successful failure doesn't mean nothing went wrong — it means the robot recognizes it cannot safely continue, stops in a predictable condition, protects workers and the utility, communicates what happened, prevents an uncontrolled restart, and waits for an authorized person to recover it.",
-      "discuss": [
-        "What are the three greatest hazards?",
-        "Who has the right of way?",
-        "Who can stop the robot?",
-        "What happens when communication is lost?",
-        "What happens when a critical sensor fails?",
-        "How should the robot respond to an unknown utility?",
-        "What requires human inspection before restart?",
-        "What company procedures must be built into its workflow?"
-      ],
-      "fields": [
-        {
           "key": "hazards",
-          "label": "Three primary hazards"
+          "label": "Top hazards"
         },
         {
           "key": "safety_controls",
           "label": "Required safety controls"
         },
         {
-          "key": "interaction_rules",
-          "label": "Human–robot interaction rules"
-        },
-        {
           "key": "successful_failure",
           "label": "Your definition of a successful failure"
-        },
-        {
-          "key": "never_autonomous",
-          "label": "One task the robot must never perform autonomously"
         }
       ]
     }
