@@ -18,7 +18,7 @@ services:
       # After the first deploy, set BASE_URL to your live URL for a rock-solid
       # QR/share link, e.g. https://robotics-workshop.onrender.com
       # - key: BASE_URL
-      #   value: https://bit.ly/BWRW2026
+      #   value: https://robotics-workshop.onrender.com
     disk:
       name: workshop-data
       mountPath: /data
