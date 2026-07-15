@@ -2,20 +2,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Group Workspace — Robotics PRD Workshop</title>
 <link rel="stylesheet" href="/css/theme.css">
-<style>
-  /* Round image + thumbnails: pinned below the top bar so they stay visible
-     while the recorder scrolls the answer form. */
-  .sec-gallery { position: sticky; top: 50px; z-index: 10; background: var(--bg);
-    padding: 8px 0 10px; }
-  .sec-feature { width: 100%; max-height: 30vh; object-fit: cover; display: block;
-    border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-2); }
-  .sec-thumbs { display: flex; gap: 6px; margin-top: 6px; overflow-x: auto; padding-bottom: 2px; }
-  .sec-thumb { width: 60px; height: 40px; object-fit: cover; flex: 0 0 auto; cursor: pointer;
-    border: 2px solid var(--line-2); border-radius: var(--radius); opacity: 0.55; transition: opacity .15s, border-color .15s; }
-  .sec-thumb.active { border-color: var(--accent); opacity: 1; }
-  .ai-note-sm { font-family: var(--mono); font-size: 0.62rem; color: var(--text-mute);
-    text-transform: uppercase; letter-spacing: 0.06em; margin-top: 5px; }
-</style>
 
 <div class="topbar">
   <div class="brand"><span class="slashes">//</span> <span id="groupName">GROUP</span></div>
@@ -37,13 +23,6 @@
       </div>
       <div class="wrap-cols" id="members" style="margin-top:12px;"></div>
       <div id="roleNote" class="mute" style="font-size:0.8rem; margin-top:10px;"></div>
-    </div>
-
-    <!-- Round image + thumbnails (sticky — stays visible while scrolling) -->
-    <div id="secGallery" class="sec-gallery hidden">
-      <img id="secFeature" class="sec-feature" alt="Robot concept">
-      <div id="secThumbs" class="sec-thumbs"></div>
-      <div class="ai-note-sm">⚠ AI-generated concept — not a real robot.</div>
     </div>
 
     <!-- Section prompt + form -->
@@ -112,7 +91,6 @@ function render(state) {
     el('gName').textContent = 'Not assigned yet';
     el('groupName').textContent = 'GROUP';
     el('sectionBox').classList.add('hidden');
-    el('secGallery').classList.add('hidden');
     return;
   }
   el('sectionBox').classList.remove('hidden');
@@ -140,38 +118,9 @@ function render(state) {
   renderDiscuss(state);
 }
 
-// Round image + robot thumbnails, pinned via CSS. Rebuilt only when the section
-// changes (keyed by section order) so tapping a thumbnail isn't undone by polls.
-function renderGallery(state, sec) {
-  const gal = el('secGallery');
-  if (!sec) { gal.classList.add('hidden'); gal.dataset.key = ''; return; }
-  const robotImgs = (state.config && state.config.robot && state.config.robot.images) || [];
-  const seen = new Set(), imgs = [];
-  for (const src of [sec.image, ...robotImgs]) { if (src && !seen.has(src)) { seen.add(src); imgs.push(src); } }
-  if (!imgs.length) { gal.classList.add('hidden'); gal.dataset.key = ''; return; }
-  gal.classList.remove('hidden');
-  if (gal.dataset.key === String(sec.order)) return; // same section — keep current selection
-  gal.dataset.key = String(sec.order);
-
-  const feature = el('secFeature');
-  feature.src = imgs[0];
-  const thumbs = el('secThumbs'); clear(thumbs);
-  if (imgs.length > 1) {
-    for (const src of imgs) {
-      const t = h('img', { class: 'sec-thumb' + (src === imgs[0] ? ' active' : ''), src });
-      t.addEventListener('click', () => {
-        feature.src = src;
-        thumbs.querySelectorAll('.sec-thumb').forEach((x) => x.classList.toggle('active', x.getAttribute('src') === src));
-      });
-      thumbs.appendChild(t);
-    }
-  }
-}
-
 function renderSection(state, group, me) {
   const sec = state.currentSection;
   const box = el('sectionBox');
-  renderGallery(state, sec);
   if (!sec) { el('secLabel').textContent = 'WAITING FOR SECTION'; el('secTitle').textContent = '—'; el('fields').innerHTML=''; return; }
 
   const secChanged = currentSectionOrder !== sec.order;

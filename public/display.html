@@ -421,7 +421,7 @@ function robot(state) {
   return h('div', { class:'col grow' }, [
     head(state),
     h('div', { class:'row grow', style:'gap:44px; align-items:flex-start;' }, [
-      imageGallery(imgs, imgs[0], 'robot', { style:'flex:0 0 auto; width:min(54vw,820px);', featureStyle:'max-height:64vh;' }),
+      imageGallery(imgs, imgs[0], 'robot', { style:'flex:0 0 auto; width:min(54vw,820px); position:sticky; top:76px; align-self:flex-start;', featureStyle:'max-height:64vh;' }),
       h('div', { class:'col grow' }, [
         h('div', { class:'label', text:'THE FICTIONAL ROBOT' }),
         h('h1', { class:'display', style:'font-size:3.2rem;', text: r.name || 'ROBOT — TBD' }),
