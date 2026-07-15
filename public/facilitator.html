@@ -70,8 +70,10 @@
             <button class="small" data-timer="reset">↺ Reset</button>
             <button class="small" data-timer="add">+30s</button>
             <button class="small" data-timer="sub">−30s</button>
-            <input type="number" id="customTimer" placeholder="sec" style="width:70px;" class="small">
-            <button class="small" id="setTimer">Set</button>
+            <input type="number" id="customTimerMin" placeholder="min" min="0" step="1" style="width:64px;" class="small">
+            <button class="small" id="setTimerMin">Set min</button>
+            <input type="number" id="customTimer" placeholder="sec" style="width:64px;" class="small">
+            <button class="small" id="setTimer">Set sec</button>
           </div>
         </div>
       </div>
@@ -80,7 +82,8 @@
     <div class="row" style="align-items:flex-start;">
       <!-- LEFT: section controls -->
       <div class="col grow" style="flex:2;">
-        <div class="panel">
+        <!-- CURRENT ROUND — hidden (kept for later; round nav is on the stage bar). -->
+        <div class="panel" style="display:none;">
           <div class="spread">
             <div><div class="label">CURRENT ROUND</div><h2 id="secTitle">—</h2></div>
             <div class="btn-group">
@@ -90,6 +93,19 @@
             </div>
           </div>
           <p class="dim mini" id="secPrompt"></p>
+        </div>
+
+        <!-- Record + transcribe (auto per slide) -->
+        <div class="panel col">
+          <div class="spread"><div class="label">🎙 RECORD &amp; TRANSCRIBE</div>
+            <span class="rec-indicator hidden" id="recIndicator"><span class="rec-dot"></span> REC</span></div>
+          <label class="check mini"><input type="checkbox" id="autoRec" checked> Auto-record every slide — starts, stops, saves &amp; downloads audio + transcript automatically on each slide change (Chrome/Edge). On by default.</label>
+          <div class="mini mute" id="recState">off</div>
+          <textarea id="transcript" readonly placeholder="Live transcript appears here while recording…" style="min-height:110px; margin-top:8px;"></textarea>
+          <div class="spread" style="margin-top:8px;"><div class="label">SAVED ON SERVER</div>
+            <button id="refreshRecs" class="small">↻</button></div>
+          <p class="mini mute">Persist on the server (survive restarts on Render) — download here anytime.</p>
+          <div id="recList" class="col mini" style="gap:4px;"></div>
         </div>
 
         <!-- Selection -->
@@ -105,8 +121,8 @@
           <div id="presentChecklist" class="col mini" style="gap:4px; margin-top:6px;"></div>
         </div>
 
-        <!-- Notes -->
-        <div class="panel col">
+        <!-- FACILITATOR NOTES — hidden (kept for later). -->
+        <div class="panel col" style="display:none;">
           <div class="spread"><div class="label">FACILITATOR NOTES</div>
             <label class="check mini"><input type="checkbox" id="notesShared"> Show on display</label></div>
           <textarea id="noteBody" placeholder="Capture a point from the room discussion…"></textarea>
@@ -115,19 +131,6 @@
             <button id="addKey" class="primary">⭐ Mark Key Point</button>
           </div>
           <div id="noteList" class="col mini" style="gap:4px;"></div>
-        </div>
-
-        <!-- Record + transcribe (auto per round) -->
-        <div class="panel col">
-          <div class="spread"><div class="label">🎙 RECORD &amp; TRANSCRIBE</div>
-            <span class="rec-indicator hidden" id="recIndicator"><span class="rec-dot"></span> REC</span></div>
-          <label class="check mini"><input type="checkbox" id="autoRec" checked> Auto-record every slide — starts, stops, saves &amp; downloads audio + transcript automatically on each slide change (Chrome/Edge). On by default.</label>
-          <div class="mini mute" id="recState">off</div>
-          <textarea id="transcript" readonly placeholder="Live transcript appears here while recording…" style="min-height:110px; margin-top:8px;"></textarea>
-          <div class="spread" style="margin-top:8px;"><div class="label">SAVED ON SERVER</div>
-            <button id="refreshRecs" class="small">↻</button></div>
-          <p class="mini mute">Persist on the server (survive restarts on Render) — download here anytime.</p>
-          <div id="recList" class="col mini" style="gap:4px;"></div>
         </div>
       </div>
 
@@ -634,6 +637,10 @@ function wire() {
   el('setTimer').addEventListener('click', () => {
     const v = Number(el('customTimer').value);
     if (v>0) post(`/session/${WS.session}/timer`, { action:'start', durationSeconds:v });
+  });
+  el('setTimerMin').addEventListener('click', () => {
+    const m = Number(el('customTimerMin').value);
+    if (m>0) post(`/session/${WS.session}/timer`, { action:'start', durationSeconds: Math.round(m*60) });
   });
 
   el('genGroups').addEventListener('click', async () => { const r = await post(`/session/${WS.session}/groups/generate`); showWarnings(r); });

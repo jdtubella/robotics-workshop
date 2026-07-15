@@ -203,6 +203,20 @@ function joinLabel(state) {
   return (state.shareBase || location.origin).replace(/^https?:\/\//, '') + '/join';
 }
 
+// Reusable "scan to join" card with a live checked-in count — shown on the
+// sign-up stages (agenda, roster) so people can keep joining. The QR encodes
+// the real working URL; the printed text uses the short URL.
+function joinCard(state) {
+  return h('div', { class:'roster-join' }, [
+    h('div', { class:'label', text:'SCAN TO JOIN' }),
+    h('div', { class:'qr', style:'margin-top:8px;' }, [ getQr(state.session.code) ]),
+    h('div', { class:'mono', style:'margin-top:8px; font-size:1.05rem;', text: joinLabel(state) }),
+    h('div', { class:'code-big', style:'margin-top:2px;', text: state.session.code }),
+    h('div', { class:'label', style:'margin-top:14px;', text:'CHECKED IN' }),
+    h('div', { class:'display', style:'font-size:2.6rem; line-height:1;', text: String(state.participants.length) }),
+  ]);
+}
+
 function uniqueImageList(images, fallback) {
   const seen = new Set();
   const out = [];
@@ -345,8 +359,11 @@ function agenda(state) {
     head(state),
     h('div', { class:'label', text:'BEFORE WE START' }),
     h('h1', { class:'display', style:'font-size:3rem;', text:'Agenda' }),
-    cfg.agendaIntro ? h('p', { class:'dim', style:'max-width:70ch; font-size:1.12rem; margin-top:6px;', text: cfg.agendaIntro }) : null,
-    h('div', { class:'agenda-list grow', style:'margin-top:22px;' }, rows),
+    cfg.agendaIntro ? h('p', { class:'dim', style:'max-width:66ch; font-size:1.12rem; margin-top:6px;', text: cfg.agendaIntro }) : null,
+    h('div', { class:'row grow', style:'gap:40px; align-items:flex-start; margin-top:18px;' }, [
+      h('div', { class:'agenda-list grow' }, rows),
+      joinCard(state),
+    ]),
   ]);
 }
 

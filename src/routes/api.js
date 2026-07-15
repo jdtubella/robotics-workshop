@@ -102,7 +102,7 @@ const REQUIRED_STAGES = ['welcome', 'robot', 'groups', 'final'];
 function defaultStageOrder(code) {
   const secs = db.prepare('SELECT key FROM sections WHERE session_code = ? ORDER BY section_order').all(code);
   // No 'roster' — individual introductions are skipped in this format.
-  return ['welcome', 'agenda', 'robot', 'roster', 'groups', ...secs.map((x) => 'sec:' + x.key), 'final'];
+  return ['welcome', 'agenda', 'roster', 'groups', 'robot', ...secs.map((x) => 'sec:' + x.key), 'final'];
 }
 
 // Parse stored order, self-healing against config changes (drop removed rounds,
