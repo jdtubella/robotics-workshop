@@ -111,8 +111,8 @@ function render(state) {
     ]));
   }
   el('roleNote').innerHTML = isRecorder
-    ? '✏️ You are the <b>recorder</b> — you enter the group\'s answer.'
-    : 'Only your group\'s <b>recorder</b> (✏️) can edit the answer. You can follow along here.';
+    ? '✏️ You are the group\'s <b>recorder</b> — you\'re leading, but anyone in the group can add to the answer.'
+    : 'Anyone in the group can enter the answer here — the recorder (✏️) just leads.';
 
   renderSection(state, group, me);
   renderDiscuss(state);
@@ -167,15 +167,14 @@ function renderSection(state, group, me) {
     if (document.activeElement !== el('summary') && mySub.summary != null) el('summary').value = mySub.summary || '';
   }
 
-  // enable/disable editing
-  const editable = isRecorder && open;
+  // enable/disable editing — any group member can contribute while the round is open.
+  const editable = open;
   el('fields').querySelectorAll('textarea').forEach((t) => (t.disabled = !editable));
   el('summary').disabled = !editable;
   el('saveBtn').disabled = !editable;
   el('submitBtn').disabled = !editable;
   const lock = el('recorderLock');
-  if (!isRecorder) { lock.classList.remove('hidden'); lock.textContent = 'View-only — you are not the recorder.'; }
-  else if (!open) { lock.classList.remove('hidden'); lock.textContent = 'This round hasn\'t opened yet — hold tight.'; }
+  if (!open) { lock.classList.remove('hidden'); lock.textContent = 'This round hasn\'t opened yet — hold tight.'; }
   else lock.classList.add('hidden');
 
   if (mySub && mySub.submitted) el('saveStatus').textContent = 'Submitted ✓';

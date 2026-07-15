@@ -230,9 +230,10 @@ function uniqueImageList(images, fallback) {
 
 // Feature image + clickable thumbnails. `key` scopes the remembered selection so
 // it survives re-renders but resets when the page (robot vs a round) changes.
-let galleryFeatured = null, galleryKey = null;
+let galleryFeatured = null, galleryKey = null, galleryTimer = null;
 function imageGallery(images, featureDefault, key, opts = {}) {
   const list = uniqueImageList(images, featureDefault);
+  if (galleryTimer) { clearInterval(galleryTimer); galleryTimer = null; } // never leak a rotate timer across renders
   if (!list.length) return h('div', {});
   if (galleryKey !== key || !list.includes(galleryFeatured)) {
     galleryKey = key;
@@ -240,16 +241,29 @@ function imageGallery(images, featureDefault, key, opts = {}) {
   }
   const feature = h('img', { class: 'feature-img', src: galleryFeatured, style: opts.featureStyle || '' });
   const thumbs = h('div', { class: 'thumbs' + (opts.center ? ' center' : '') });
+  const setFeatured = (src) => {
+    galleryFeatured = src; feature.src = src;
+    thumbs.querySelectorAll('.thumb').forEach((x) => x.classList.toggle('active', x.getAttribute('src') === src));
+  };
   if (list.length > 1) {
     for (const src of list) {
       const t = h('img', { class: 'thumb' + (src === galleryFeatured ? ' active' : ''), src });
       t.addEventListener('click', () => {
-        galleryFeatured = src; feature.src = src;
-        thumbs.querySelectorAll('.thumb').forEach((x) => x.classList.toggle('active', x.getAttribute('src') === src));
+        setFeatured(src);
+        if (opts.autoRotateMs) startRotate(); // restart the clock after a manual pick
       });
       thumbs.appendChild(t);
     }
   }
+  // Auto-advance through the images (e.g. every 10s on the round slides).
+  function startRotate() {
+    if (galleryTimer) clearInterval(galleryTimer);
+    galleryTimer = setInterval(() => {
+      const i = list.indexOf(galleryFeatured);
+      setFeatured(list[(i + 1) % list.length]);
+    }, opts.autoRotateMs);
+  }
+  if (opts.autoRotateMs && list.length > 1) startRotate();
   return h('div', { class: 'gallery' + (opts.center ? ' center' : ''), style: opts.style || '' }, [
     feature,
     list.length > 1 ? thumbs : null,
@@ -494,7 +508,7 @@ function section(state) {
         discuss,
       ]),
       secImages.length
-        ? imageGallery(secImages, sec.image || secImages[0], 'section:' + (sec.order || ''), { style:'flex:0 0 auto; width:min(52vw,820px);', featureStyle:'max-height:66vh;' })
+        ? imageGallery(secImages, sec.image || secImages[0], 'section:' + (sec.order || ''), { style:'flex:0 0 auto; width:min(52vw,820px);', featureStyle:'max-height:66vh;', autoRotateMs: 10000 })
         : null,
     ]),
   ]);

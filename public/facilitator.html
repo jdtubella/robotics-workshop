@@ -11,6 +11,9 @@
     border:1px solid var(--line); color:var(--text-mute); font-size:0.85rem; line-height:1; letter-spacing:0; }
   .stage-move:hover:not(:disabled) { color:var(--accent); border-color:var(--accent); }
   .stage-move:disabled { opacity:0.2; cursor:default; }
+  /* Inline action steps in the sequential guide (Generate / Finalize / Spin). */
+  .action-step { background:transparent; border:1px dashed var(--accent); color:var(--accent); font-weight:700; }
+  .action-step:hover { background:var(--accent); color:#120a06; border-style:solid; }
   .mini { font-size:0.7rem; }
   .plist .row-item { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
   .viewonly { opacity:0.5; pointer-events:none; }
@@ -270,6 +273,12 @@ function renderStageNav(s) {
 
   const nav = el('stageNav'); clear(nav);
   const inRound = s.session.status === 'section' || s.session.status === 'discussion';
+  const lastSecIdx = order.reduce((acc, t, i) => (t.startsWith('sec:') ? i : acc), -1);
+
+  // An inline action button that lives in the sequential guide (no reorder arrows).
+  const actionStep = (label, onClick) => h('span', { class: 'stage-chip' }, [
+    h('button', { class: 'btn small action-step', onclick: onClick }, label),
+  ]);
 
   order.forEach((token, idx) => {
     let label, active, navigate;
@@ -293,6 +302,16 @@ function renderStageNav(s) {
         onclick: () => post(`/session/${WS.session}/stage/reorder`, { token, direction: 'right' }) }, '›'),
     ]);
     nav.appendChild(chip);
+
+    // Inline actions so the facilitator can just click straight through the guide:
+    // after Groups → Generate then Finalize; after the last round → Spin.
+    if (token === 'groups') {
+      nav.appendChild(actionStep('⚙ Generate Groups', async () => { const r = await post(`/session/${WS.session}/groups/generate`); showWarnings(r); }));
+      nav.appendChild(actionStep('✓ Finalize', () => { post(`/session/${WS.session}/groups/finalize`); toast('Groups finalized'); }));
+    }
+    if (idx === lastSecIdx) {
+      nav.appendChild(actionStep('🎡 Spin (Random)', () => runSelect('random')));
+    }
   });
 }
 

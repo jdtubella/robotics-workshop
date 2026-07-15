@@ -692,7 +692,8 @@ router.post('/session/:code/submission', (req, res) => {
   const { participantId, response, summary, submit } = req.body;
   const p = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(participantId, s.code);
   if (!p || !p.group_id) return res.status(400).json({ error: 'You are not in a group.' });
-  if (!p.is_recorder) return res.status(403).json({ error: 'Only the group recorder can edit the answer.' });
+  // Any group member can save/submit the group's answer (the recorder is just a
+  // suggested lead) — so a submission always lands regardless of who's holding the phone.
   if (s.submission_status !== 'open') return res.status(409).json({ error: 'Submissions are closed.' });
   if (!s.current_section) return res.status(409).json({ error: 'No active section.' });
 
