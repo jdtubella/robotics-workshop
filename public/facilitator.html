@@ -372,6 +372,7 @@ function renderEditor(s) {
       textField('Workshop title', cfg.workshopTitle, (v) => saveContent('meta', null, 'workshopTitle', v)),
       textField('Purpose', cfg.purpose, (v) => saveContent('meta', null, 'purpose', v), true),
       textField('Disclaimer', cfg.disclaimer, (v) => saveContent('meta', null, 'disclaimer', v), true),
+      textField('Join short URL (shown as “OR VISIT” text; QR stays the real link)', cfg.joinShortUrl, (v) => saveContent('meta', null, 'joinShortUrl', v)),
       imgBtn('Upload welcome image', (url) => saveContent('meta', null, 'welcomeImage', url).then(() => toast('Welcome image updated'))),
     );
   }

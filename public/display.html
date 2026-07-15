@@ -109,6 +109,7 @@ function viewSignature(s) {
     st: s.session.status, sec: s.session.currentSection, sub: s.session.submissionStatus,
     sel: s.session.selectedGroupId, pub: s.session.publicNames,
     notesShared: s.session.notesShared, share: s.shareBase,
+    joinShort: s.config ? s.config.joinShortUrl : null,
     secKey: s.currentSection ? s.currentSection.key : null,
     agenda: s.config ? [s.config.agendaIntro, ...(s.config.agenda || [])].join('|') : null,
     order: s.sections.map((x) => x.title),
@@ -122,10 +123,9 @@ function viewSignature(s) {
 }
 
 function head(state, opts = {}) {
-  const joinHost = (state.shareBase || location.origin).replace(/^https?:\/\//, '');
   const rejoin = h('div', { class:'rejoin' }, [
     h('span', { class:'label', text:'REJOIN' }),
-    h('span', { class:'mono', text: joinHost + '/join' }),
+    h('span', { class:'mono', text: joinLabel(state) }),
     h('span', { class:'code-pill', text: state.session.code }),
   ]);
   return h('div', { class: 'head' }, [
@@ -193,6 +193,15 @@ function syncTimers(state) {
 }
 
 function escapeXml(s) { return String(s || '').replace(/[<>&]/g, (c) => ({ '<':'&lt;', '>':'&gt;', '&':'&amp;' }[c])); }
+
+// Human-readable "type this to join" text. Uses the configured short URL
+// (e.g. bit.ly/BWRW2026) when set; otherwise the real host + /join. The QR
+// always encodes the real working URL, so scanning is unaffected.
+function joinLabel(state) {
+  const short = state.config && state.config.joinShortUrl;
+  if (short && String(short).trim()) return String(short).trim();
+  return (state.shareBase || location.origin).replace(/^https?:\/\//, '') + '/join';
+}
 
 function uniqueImageList(images, fallback) {
   const seen = new Set();
@@ -309,7 +318,7 @@ function welcome(state) {
           h('div', {}, [ h('div',{class:'label',text:'SCAN TO JOIN'}), h('div', { class: 'qr', style:'margin-top:8px;' }, [ getQr(state.session.code) ]) ]),
           h('div', {}, [
             h('div',{class:'label',text:'OR VISIT'}),
-            h('div',{class:'mono', style:'margin-top:8px; font-size:1rem;', text: (state.shareBase || location.origin) + '/join'}),
+            h('div',{class:'mono', style:'margin-top:8px; font-size:1.15rem;', text: joinLabel(state)}),
             h('div',{class:'code-big', style:'margin-top:6px;', text: state.session.code}),
             h('div',{class:'label', style:'margin-top:14px;', text:'REGISTERED'}),
             h('div',{class:'display', style:'font-size:3rem;', text: String(state.participants.length)}),
@@ -344,13 +353,12 @@ function agenda(state) {
 function roster(state) {
   const showNames = state.session.publicNames;
   const people = state.participants.slice().reverse();
-  const joinHost = (state.shareBase || location.origin).replace(/^https?:\/\//, '');
 
   // Live scan-to-join panel so latecomers can still hop on from this screen.
   const joinPanel = h('div', { class:'roster-join' }, [
     h('div', { class:'label', text:'SCAN TO JOIN' }),
     h('div', { class:'qr', style:'margin-top:8px;' }, [ getQr(state.session.code) ]),
-    h('div', { class:'mono', style:'margin-top:8px; font-size:0.95rem;', text: joinHost + '/join' }),
+    h('div', { class:'mono', style:'margin-top:8px; font-size:1.05rem;', text: joinLabel(state) }),
     h('div', { class:'code-big', style:'margin-top:2px;', text: state.session.code }),
   ]);
 
