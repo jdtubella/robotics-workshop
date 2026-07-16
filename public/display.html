@@ -39,11 +39,11 @@
   @keyframes pop { 0%{transform:scale(0.7);opacity:0;} 100%{transform:scale(1);opacity:1;} }
   .join-name { animation: fade 0.5s ease; }
   /* Roster cards */
-  .roster-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:16px; align-content:flex-start; }
+  .roster-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; align-content:flex-start; }
   .roster-card { background:var(--bg-3); border:1px solid var(--line); border-left:3px solid var(--accent);
-    border-radius:var(--radius); padding:16px 20px; }
-  .roster-card .nm { font-size:1.7rem; font-weight:800; letter-spacing:-0.01em; }
-  .roster-card .co { font-size:1.05rem; color:var(--text-dim); margin-top:2px; }
+    border-radius:var(--radius); padding:12px 16px; }
+  .roster-card .nm { font-size:1.45rem; font-weight:800; letter-spacing:-0.01em; }
+  .roster-card .co { font-size:0.95rem; color:var(--text-dim); margin-top:2px; }
   .roster-join { flex:0 0 auto; text-align:center; background:var(--bg-2); border:1px solid var(--line);
     border-radius:var(--radius); padding:20px 26px; }
   .roster-join .qr img { width:200px; height:200px; }
@@ -152,6 +152,19 @@ function ensureTimerSmall() {
   return timerElSmall;
 }
 
+// The projector is a non-interactive surface — nobody stands there scrolling.
+// After every render, scale the stage down just enough that the whole state
+// fits the viewport (floor at 0.55 so text stays legible; beyond that, scroll).
+function fitStage() {
+  const stage = el('stage');
+  stage.style.zoom = '';
+  const need = stage.scrollHeight;
+  if (need > window.innerHeight + 4) {
+    stage.style.zoom = String(Math.max(0.55, window.innerHeight / need));
+  }
+}
+window.addEventListener('resize', fitStage);
+
 function render(state) {
   const status = state.session.status;
   const stage = el('stage');
@@ -170,6 +183,10 @@ function render(state) {
   if (sig === lastSig) { syncTimers(state); return; }
   lastSig = sig;
 
+  // A data-only change (someone joined, a submission landed) re-renders the same
+  // slide — keep the scroll position so the room doesn't see the page jump.
+  const keepScroll = status === lastStatus ? window.scrollY : 0;
+
   clear(stage);
   let body;
   switch (status) {
@@ -185,6 +202,13 @@ function render(state) {
   }
   stage.appendChild(body);
   stage.firstChild && stage.firstChild.classList && stage.firstChild.classList.add('fade');
+
+  // Auto-fit now and again as images finish loading (they change the height).
+  fitStage();
+  stage.querySelectorAll('img').forEach((im) => {
+    if (!im.complete) im.addEventListener('load', fitStage, { once: true });
+  });
+  window.scrollTo(0, keepScroll);
 
   syncTimers(state);
   lastStatus = status;

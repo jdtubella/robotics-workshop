@@ -3,15 +3,32 @@
 <title>Group Workspace — Robotics PRD Workshop</title>
 <link rel="stylesheet" href="/css/theme.css">
 
+<style>
+  /* The topbar is the one thing that never scrolls away — keep the countdown
+     and submission state there so they're visible while filling the form. */
+  .bar-right { display:flex; align-items:center; gap:12px; }
+  #barTimer { font-family:var(--mono); font-weight:800; font-size:1.05rem; letter-spacing:0.04em; }
+  #barTimer.low { color:#ef4444; }
+  .sub-banner { position:sticky; top:50px; z-index:15; display:flex; align-items:center; gap:10px;
+    background:rgba(61,214,128,0.12); border:1px solid rgba(61,214,128,0.45); color:#3dd68c;
+    border-radius:var(--radius); padding:10px 14px; font-weight:700; margin: 8px 0 0; }
+</style>
+
 <div class="topbar">
   <div class="brand"><span class="slashes">//</span> <span id="groupName">GROUP</span></div>
-  <span class="conn" id="conn"><span class="dot"></span></span>
+  <div class="bar-right">
+    <span id="barTimer" class="timer">--:--</span>
+    <span class="conn" id="conn"><span class="dot"></span></span>
+  </div>
 </div>
 
 <div class="wrap col" style="max-width:640px;">
   <div id="loading" class="panel">Loading your workspace…</div>
 
   <div id="main" class="hidden col">
+    <!-- Unmissable submitted state (sticky below the top bar) -->
+    <div id="subBanner" class="sub-banner hidden">✓ Submitted — your group can keep refining until time runs out.</div>
+
     <!-- Group header -->
     <div class="panel hud">
       <div class="spread">
@@ -77,9 +94,11 @@ let dirty = false, lastServerResp = {}, lastServerSummary = '';
 // phones can fill different fields of the same answer without overwriting each other.
 let dirtyFields = new Set(), summaryTouched = false;
 
+let barCountdown = null;
 function boot() {
   if (!WS.session || !PID) { el('loading').textContent = 'Missing session or participant.'; return; }
   countdown = makeCountdown(el('timer'));
+  barCountdown = makeCountdown(el('barTimer'), { lowAt: 30000 }); // always-visible copy in the top bar
   WS.startPolling(4500, render, { participant: PID });
 }
 
@@ -87,6 +106,7 @@ function render(state) {
   el('loading').classList.add('hidden');
   el('main').classList.remove('hidden');
   countdown.sync(state.session.timer, state.serverNow);
+  if (barCountdown) barCountdown.sync(state.session.timer, state.serverNow);
 
   const me = state.me || (state.participants || []).find((p) => p.id === PID);
   const group = me && me.groupId ? state.groups.find((g) => g.id === me.groupId) : null;
@@ -124,7 +144,7 @@ function render(state) {
 function renderSection(state, group, me) {
   const sec = state.currentSection;
   const box = el('sectionBox');
-  if (!sec) { el('secLabel').textContent = 'WAITING FOR SECTION'; el('secTitle').textContent = '—'; el('fields').innerHTML=''; return; }
+  if (!sec) { el('secLabel').textContent = 'WAITING FOR SECTION'; el('secTitle').textContent = '—'; el('fields').innerHTML=''; el('subBanner').classList.add('hidden'); return; }
 
   const secChanged = currentSectionOrder !== sec.order;
   currentSectionOrder = sec.order;
@@ -183,6 +203,10 @@ function renderSection(state, group, me) {
   else lock.classList.add('hidden');
 
   if (mySub && mySub.submitted) el('saveStatus').textContent = 'Submitted ✓';
+  // Unmissable submitted state: sticky banner + the submit button flips to "update".
+  const isSubmitted = !!(mySub && mySub.submitted);
+  el('subBanner').classList.toggle('hidden', !isSubmitted);
+  el('submitBtn').textContent = isSubmitted ? '✓ Submitted — Update answer' : '▶ Submit';
 }
 
 function collect() {

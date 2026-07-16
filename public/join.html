@@ -2,6 +2,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Join — Robotics PRD Workshop</title>
 <link rel="stylesheet" href="/css/theme.css">
+<style>
+  /* Compact registration: the whole form (incl. Join) should fit a phone screen. */
+  .wrap.col { gap: 12px; }
+  #wsTitle { font-size: 1.35rem; line-height: 1.2; margin-top: 6px; }
+  #form .panel.hud.col { gap: 10px; padding: 16px; }
+  #present .choice { flex: 1; text-align: center; }
+</style>
 
 <div class="topbar">
   <div class="brand"><span class="slashes">//</span> JOIN</div>
@@ -15,8 +22,8 @@
   <div id="form" class="hidden col">
     <div>
       <div class="label">SESSION <span id="codeLbl"></span></div>
-      <h1 id="wsTitle" style="margin-top:8px;">Workshop</h1>
-      <p class="dim" id="wsPurpose" style="font-size:0.9rem;"></p>
+      <h1 id="wsTitle">Workshop</h1>
+      <p class="dim" id="wsPurpose" style="font-size:0.85rem; margin-top:4px;"></p>
     </div>
     <div class="panel hud col">
       <label class="field"><span class="label">NAME *</span><input type="text" id="name" autocomplete="name"></label>
@@ -25,11 +32,11 @@
         <select id="role"></select>
       </label>
       <div class="field">
-        <span class="label">WILLING TO PRESENT?</span>
+        <span class="label">WILLING TO PRESENT? <span class="mute" style="text-transform:none; letter-spacing:0;">(each group needs one)</span></span>
         <div class="choice-row" id="present">
-          <div class="choice" data-v="yes">Yes</div>
-          <div class="choice" data-v="maybe">Maybe</div>
-          <div class="choice active" data-v="no">No</div>
+          <button type="button" class="choice" data-v="yes">Yes</button>
+          <button type="button" class="choice" data-v="maybe">Maybe</button>
+          <button type="button" class="choice" data-v="no">No</button>
         </div>
       </div>
       <label class="field"><span class="label">EMAIL (OPTIONAL)</span><input type="email" id="email" autocomplete="email" placeholder="for the workshop summary"></label>
@@ -62,7 +69,7 @@
 <script src="/js/common.js"></script>
 <script>
 WS.init();
-let present = 'no';
+let present = null; // no pre-selection — a highlighted "No" nudges people away from presenting
 
 // No ?session=CODE in the URL — let the person type the code from the room display.
 function showCodeEntry() {
@@ -121,7 +128,7 @@ el('submitBtn').addEventListener('click', async () => {
   try {
     const r = await WS.post(`/session/${WS.session}/register`, {
       name, company: el('company').value.trim(), role: el('role').value,
-      presentPref: present, email: el('email').value.trim(), reportConsent: el('consent').checked,
+      presentPref: present || 'no', email: el('email').value.trim(), reportConsent: el('consent').checked,
     });
     WS.saveParticipant(r.participantId);
     if (r.lateArrival) toast('Registered — you joined after groups formed; the facilitator will place you.');
