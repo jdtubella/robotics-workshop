@@ -15,12 +15,22 @@ const WS = {
       this.deviceId = 'd_' + Math.random().toString(36).slice(2, 10);
       localStorage.setItem('ws_device_id', this.deviceId);
     }
+    // Facilitator key: arrives once via ?key= (from the session-created link),
+    // then persists per-session in localStorage. Participant pages never have one.
+    if (this.session) {
+      const urlKey = this.qs.get('key');
+      if (urlKey) localStorage.setItem('ws_fkey_' + this.session, urlKey);
+      this.fkey = urlKey || localStorage.getItem('ws_fkey_' + this.session) || null;
+    }
     return this;
   },
+  // Append the key to a same-origin URL (for <a href> downloads that can't send headers).
+  keyed(url) { return this.fkey ? url + (url.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(this.fkey) : url; },
 
   // ---- API ----------------------------------------------------------------
   async api(method, path, body) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (this.fkey) opts.headers['x-facilitator-key'] = this.fkey;
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch('/api' + path, opts);
     let data = null;

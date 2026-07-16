@@ -13,8 +13,13 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+      - key: NODE_ENV
+        value: production
       - key: DB_PATH
         value: /data/workshop.db
+      # Live config + uploaded images are stored on the /data disk (seeded from
+      # the repo copy on first boot) so facilitator edits survive restarts.
+      # Set ALLOW_SIM=1 to enable the testing/simulation tools on this host.
       # Optional: pin the real Render URL so QR/share links are rock-solid even
       # behind proxies. Must be the FUNCTIONAL onrender URL — NEVER a bit.ly
       # short link (that would break every QR + join link). The short URL shown

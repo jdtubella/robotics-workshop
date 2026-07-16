@@ -209,16 +209,21 @@ function buildState(code, { participantId } = {}) {
     const subs = db
       .prepare('SELECT * FROM submissions WHERE session_code = ? AND section_order = ?')
       .all(code, s.current_section);
+    const fieldCount = currentSectionRow ? JSON.parse(currentSectionRow.fields_json || '[]').length : 0;
     submissions = subs.map((sub) => {
       const mine = myGroupId && sub.group_id === myGroupId;
       const showContent = mine || sub.group_id === s.selected_group_id;
+      const resp = safeJson(sub.response_json);
       return {
         id: sub.id,
         groupId: sub.group_id,
         submitted: !!sub.submitted,
         mine: !!mine,
+        // Progress metadata only — safe to share without leaking answer content.
+        filledCount: Object.values(resp).filter((v) => v && String(v).trim()).length,
+        fieldCount,
         summary: showContent ? sub.summary_response : null,
-        response: showContent ? safeJson(sub.response_json) : null,
+        response: showContent ? resp : null,
       };
     });
   }
@@ -259,6 +264,7 @@ function buildState(code, { participantId } = {}) {
   const meta = ov.meta || {};
   return {
     serverNow: Date.now(),
+    simAllowed: simAllowed(),
     config: {
       workshopTitle: pick(meta, 'workshopTitle', baseCfg.workshopTitle),
       purpose: pick(meta, 'purpose', baseCfg.purpose),
@@ -287,7 +293,8 @@ function buildState(code, { participantId } = {}) {
       timer: timerRemaining(s),
       timerDuration: s.timer_duration,
       stageOrder: stageOrder(s),
-      recordingActive: !!s.recording_active,
+      // Heartbeat-gated: stale > 20s means the recorder died — turn the light off.
+      recordingActive: !!s.recording_active && Date.now() - s.recording_active < 20000,
     },
     sections,
     currentSection,
@@ -344,9 +351,10 @@ router.post('/sessions', (req, res) => {
   let code = sessionCode();
   while (getSession(code)) code = sessionCode();
   const now = Date.now();
+  const facilitatorKey = uid('fk');
   db.prepare(
-    `INSERT INTO sessions (code, workshop_title, created_at, updated_at) VALUES (?, ?, ?, ?)`
-  ).run(code, cfg.workshopTitle || 'Workshop', now, now);
+    `INSERT INTO sessions (code, workshop_title, facilitator_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`
+  ).run(code, cfg.workshopTitle || 'Workshop', facilitatorKey, now, now);
 
   const insSection = db.prepare(
     `INSERT INTO sections (session_code, section_order, key, title, objective, main_prompt, image, fields_json, default_timer)
@@ -367,7 +375,7 @@ router.post('/sessions', (req, res) => {
   });
   db.prepare('UPDATE sessions SET stage_order = ? WHERE code = ?').run(JSON.stringify(defaultStageOrder(code)), code);
   logActivity({ session_code: code, action: 'session_created' });
-  res.json({ code });
+  res.json({ code, facilitatorKey });
 });
 
 router.get('/session/:code/state', (req, res) => {
@@ -393,7 +401,7 @@ router.get('/session/:code/qr', async (req, res) => {
 
 // Master stage / display state.
 router.post('/session/:code/status', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const { status } = req.body;
   const allowed = ['welcome', 'agenda', 'roster', 'robot', 'groups', 'section', 'discussion', 'final'];
   if (!allowed.includes(status)) return res.status(400).json({ error: 'bad status' });
@@ -403,13 +411,25 @@ router.post('/session/:code/status', (req, res) => {
 });
 
 router.post('/session/:code/section', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const total = db.prepare('SELECT COUNT(*) n FROM sections WHERE session_code = ?').get(s.code).n;
   let next = s.current_section;
   if (req.body.action === 'next') next = Math.min(total, s.current_section + 1) || 1;
   else if (req.body.action === 'prev') next = Math.max(1, s.current_section - 1);
   else if (req.body.set != null) next = Math.max(1, Math.min(total, Number(req.body.set)));
-  // Moving sections resets per-round state and immediately opens submissions.
+
+  // Re-tapping the round that's already active must not wipe live round state
+  // (group statuses, open submissions). From a discussion it just returns to the
+  // round view; from the round view it's a no-op.
+  if (next === s.current_section && ['section', 'discussion'].includes(s.status)) {
+    if (s.status === 'discussion') {
+      db.prepare(`UPDATE sessions SET status = 'section', selected_group_id = NULL, spin = NULL WHERE code = ?`).run(s.code);
+      db.prepare(`UPDATE groups SET status = 'submitted' WHERE session_code = ? AND status = 'selected'`).run(s.code);
+    }
+    return ok(res, s.code, req);
+  }
+
+  // Moving to a different round resets per-round state and opens submissions.
   db.prepare(
     `UPDATE sessions SET current_section = ?, submission_status = 'open', voting_status = 'closed',
       selected_group_id = NULL, spin = NULL, status = 'section' WHERE code = ?`
@@ -422,7 +442,7 @@ router.post('/session/:code/section', (req, res) => {
 // Reorder the facilitator flow by swapping a stage with its neighbour. If two
 // rounds swap, their content (submissions/votes/notes) moves with them.
 router.post('/session/:code/stage/reorder', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const { token, direction } = req.body;
   const order = stageOrder(s);
   const i = order.indexOf(token);
@@ -436,14 +456,14 @@ router.post('/session/:code/stage/reorder', (req, res) => {
 });
 
 router.post('/session/:code/public-names', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const v = req.body.value ? 1 : 0;
   db.prepare('UPDATE sessions SET public_names = ? WHERE code = ?').run(v, s.code);
   ok(res, s.code, req);
 });
 
 router.post('/session/:code/notes-shared', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const v = req.body.value ? 1 : 0;
   db.prepare('UPDATE sessions SET notes_shared = ? WHERE code = ?').run(v, s.code);
   ok(res, s.code, req);
@@ -452,7 +472,7 @@ router.post('/session/:code/notes-shared', (req, res) => {
 // ---------- timer ------------------------------------------------------------
 
 router.post('/session/:code/timer', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const { action } = req.body;
   const now = Date.now();
   const cur = timerRemaining(s);
@@ -486,8 +506,7 @@ router.post('/session/:code/timer', (req, res) => {
 // Report sign-ups (consented emails) — kept out of the shared state so participant
 // devices never receive other people's emails.
 router.get('/session/:code/emails', (req, res) => {
-  const s = getSession(req.params.code);
-  if (!s) return res.status(404).json({ error: 'not found' });
+  const s = requireFac(req, res); if (!s) return; // PII — facilitator only
   const rows = db
     .prepare("SELECT name, company, email FROM participants WHERE session_code = ? AND report_consent = 1 AND email IS NOT NULL AND email != '' ORDER BY created_at")
     .all(s.code);
@@ -497,7 +516,7 @@ router.get('/session/:code/emails', (req, res) => {
 // ---------- registration -----------------------------------------------------
 
 router.post('/session/:code/register', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireSession(res, req.params.code); if (!s) return; // participant route — no key
   const { name, company, role, presentPref, email, reportConsent } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required' });
   const id = uid('p');
@@ -571,20 +590,20 @@ function runGrouping(code, { preserveLocked }) {
 }
 
 router.post('/session/:code/groups/generate', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const warnings = runGrouping(s.code, { preserveLocked: false });
   db.prepare('UPDATE sessions SET status = ? WHERE code = ?').run('groups', s.code);
   res.json({ ok: true, warnings, state: buildState(s.code) });
 });
 
 router.post('/session/:code/groups/reroll', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const warnings = runGrouping(s.code, { preserveLocked: true });
   res.json({ ok: true, warnings, state: buildState(s.code) });
 });
 
 router.post('/session/:code/groups/finalize', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   db.prepare('UPDATE sessions SET groups_finalized = 1 WHERE code = ?').run(s.code);
   logActivity({ session_code: s.code, action: 'groups_finalize' });
   ok(res, s.code, req);
@@ -593,14 +612,14 @@ router.post('/session/:code/groups/finalize', (req, res) => {
 // Overrides -------------------------------------------------------------------
 
 router.post('/session/:code/participant/:id/lock', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   db.prepare('UPDATE participants SET locked = ? WHERE id = ? AND session_code = ?')
     .run(req.body.value ? 1 : 0, req.params.id, s.code);
   ok(res, s.code, req);
 });
 
 router.post('/session/:code/swap', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const { a, b } = req.body;
   const pa = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(a, s.code);
   const pb = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(b, s.code);
@@ -617,7 +636,7 @@ router.post('/session/:code/swap', (req, res) => {
 });
 
 router.post('/session/:code/move', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const { participantId, groupId } = req.body;
   const p = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(participantId, s.code);
   const g = db.prepare('SELECT * FROM groups WHERE id = ? AND session_code = ?').get(groupId, s.code);
@@ -631,17 +650,17 @@ router.post('/session/:code/move', (req, res) => {
 });
 
 router.post('/session/:code/group/:gid/presenter', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   setRole(s.code, req.params.gid, req.body.participantId, 'presenter');
   ok(res, s.code, req);
 });
 router.post('/session/:code/group/:gid/recorder', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   setRole(s.code, req.params.gid, req.body.participantId, 'recorder');
   ok(res, s.code, req);
 });
 router.post('/session/:code/group/:gid/rename', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'name required' });
   db.prepare('UPDATE groups SET name = ? WHERE id = ? AND session_code = ?').run(name, req.params.gid, s.code);
@@ -688,7 +707,7 @@ function fixGroupRoles(code, gid) {
 // ---------- submissions ------------------------------------------------------
 
 router.post('/session/:code/submission', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireSession(res, req.params.code); if (!s) return; // participant route — no key
   const { participantId, response, summary, submit } = req.body;
   const p = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(participantId, s.code);
   if (!p || !p.group_id) return res.status(400).json({ error: 'You are not in a group.' });
@@ -697,22 +716,38 @@ router.post('/session/:code/submission', (req, res) => {
   if (s.submission_status !== 'open') return res.status(409).json({ error: 'Submissions are closed.' });
   if (!s.current_section) return res.status(409).json({ error: 'No active section.' });
 
-  const existing = db
-    .prepare('SELECT * FROM submissions WHERE session_code = ? AND section_order = ? AND group_id = ?')
-    .get(s.code, s.current_section, p.group_id);
+  // Field-level merge inside a transaction: several phones can edit the same
+  // group's answer concurrently without clobbering each other's fields. The
+  // client sends only the fields this person actually touched; an explicitly
+  // emptied field is sent as '' and deletes the stored value. `summary` is only
+  // applied when the client marks it touched (summaryTouched) or on legacy clients.
   const now = Date.now();
-  const respJson = JSON.stringify(response || {});
-  const submitted = submit ? 1 : (existing ? existing.submitted : 0);
-  if (existing) {
-    db.prepare(
-      `UPDATE submissions SET response_json = ?, summary_response = ?, submitted = ?, submitted_at = COALESCE(submitted_at, ?), updated_at = ? WHERE id = ?`
-    ).run(respJson, summary || null, submitted, submit ? now : existing.submitted_at, now, existing.id);
-  } else {
-    db.prepare(
-      `INSERT INTO submissions (id, session_code, section_order, group_id, response_json, summary_response, submitted, submitted_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(uid('s'), s.code, s.current_section, p.group_id, respJson, summary || null, submitted, submit ? now : null, now);
-  }
+  const applySubmission = db.transaction(() => {
+    const existing = db
+      .prepare('SELECT * FROM submissions WHERE session_code = ? AND section_order = ? AND group_id = ?')
+      .get(s.code, s.current_section, p.group_id);
+    const merged = existing ? safeJson(existing.response_json) : {};
+    for (const [k, v] of Object.entries(response || {})) {
+      if (v == null || String(v).trim() === '') delete merged[k];
+      else merged[k] = String(v);
+    }
+    const touchSummary = req.body.summaryTouched !== false; // legacy clients always send summary
+    const newSummary = touchSummary ? (summary || null) : (existing ? existing.summary_response : null);
+    const respJson = JSON.stringify(merged);
+    const submitted = submit ? 1 : (existing ? existing.submitted : 0);
+    if (existing) {
+      db.prepare(
+        `UPDATE submissions SET response_json = ?, summary_response = ?, submitted = ?, submitted_at = COALESCE(submitted_at, ?), updated_at = ? WHERE id = ?`
+      ).run(respJson, newSummary, submitted, submit ? now : existing.submitted_at, now, existing.id);
+    } else {
+      db.prepare(
+        `INSERT INTO submissions (id, session_code, section_order, group_id, response_json, summary_response, submitted, submitted_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(uid('s'), s.code, s.current_section, p.group_id, respJson, newSummary, submitted, submit ? now : null, now);
+    }
+    return submitted;
+  });
+  const submitted = applySubmission();
   // group status
   const status = submitted ? 'submitted' : 'working';
   db.prepare(`UPDATE groups SET status = ? WHERE id = ? AND session_code = ?`).run(status, p.group_id, s.code);
@@ -723,7 +758,7 @@ router.post('/session/:code/submission', (req, res) => {
 // ---------- selection --------------------------------------------------------
 
 router.post('/session/:code/select', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const { mode, groupId } = req.body;
   const groups = db.prepare('SELECT * FROM groups WHERE session_code = ? ORDER BY sort_order').all(s.code);
   if (!groups.length) return res.status(409).json({ error: 'No groups yet.' });
@@ -752,7 +787,7 @@ router.post('/session/:code/select', (req, res) => {
 });
 
 router.post('/session/:code/select/clear', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   db.prepare('UPDATE sessions SET selected_group_id = NULL, spin = NULL, status = ? WHERE code = ?').run('section', s.code);
   ok(res, s.code, req);
 });
@@ -760,7 +795,7 @@ router.post('/session/:code/select/clear', (req, res) => {
 // ---------- notes ------------------------------------------------------------
 
 router.post('/session/:code/note', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const { body, groupId, keyPoint, sectionOrder } = req.body;
   if (!body || !String(body).trim()) return res.status(400).json({ error: 'empty note' });
   db.prepare(
@@ -774,7 +809,7 @@ router.post('/session/:code/note', (req, res) => {
 
 // Save a recorded audio blob (base64 data URL) beside the DB; return its URL.
 router.post('/session/:code/audio', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const m = /^data:(audio\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(req.body.dataUrl || '');
   if (!m) return res.status(400).json({ error: 'Expected a base64 audio data URL.' });
   const buf = Buffer.from(m[2], 'base64');
@@ -791,15 +826,16 @@ router.post('/session/:code/audio', (req, res) => {
 // Recording on/off signal from the facilitator, so the room display can show a
 // live REC light (the actual capture happens in the facilitator's browser).
 router.post('/session/:code/recording', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
-  db.prepare('UPDATE sessions SET recording_active = ? WHERE code = ?').run(req.body.active ? 1 : 0, s.code);
+  const s = requireFac(req, res); if (!s) return;
+  // Stored as a heartbeat timestamp: the facilitator re-posts while recording, and
+  // the REC light auto-clears if heartbeats stop (crashed laptop, killed tab).
+  db.prepare('UPDATE sessions SET recording_active = ? WHERE code = ?').run(req.body.active ? Date.now() : 0, s.code);
   ok(res, s.code, req);
 });
 
 // List a session's saved recordings + transcripts (for retrieval from the server).
 router.get('/session/:code/recordings', (req, res) => {
-  const s = getSession(req.params.code);
-  if (!s) return res.status(404).json({ error: 'not found' });
+  const s = requireFac(req, res); if (!s) return;
   const rows = db
     .prepare('SELECT id, section_order, label, text, audio_url, created_at FROM transcripts WHERE session_code = ? ORDER BY section_order, created_at')
     .all(s.code);
@@ -814,8 +850,7 @@ router.get('/session/:code/recordings', (req, res) => {
 
 // Download one transcript segment as a .txt file.
 router.get('/session/:code/transcript/:id', (req, res) => {
-  const s = getSession(req.params.code);
-  if (!s) return res.status(404).send('not found');
+  const s = requireFac(req, res); if (!s) return;
   const row = db.prepare('SELECT * FROM transcripts WHERE id = ? AND session_code = ?').get(req.params.id, s.code);
   if (!row) return res.status(404).send('not found');
   const slug = String(row.label || `round-${row.section_order}`).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'segment';
@@ -828,7 +863,7 @@ router.get('/session/:code/transcript/:id', (req, res) => {
 // Append a transcript segment for a section (each round + its discussion keep
 // their own segment). Used by the auto-recorder on every slide change.
 router.post('/session/:code/transcript', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const order = Number(req.body.sectionOrder) || s.current_section || 0;
   const text = String(req.body.text || '').trim();
   if (!text) return res.status(400).json({ error: 'Empty transcript.' });
@@ -845,7 +880,7 @@ router.post('/session/:code/transcript', (req, res) => {
 // (section requires sectionKey). value may be a string or an array.
 const META_FIELDS = ['workshopTitle', 'purpose', 'disclaimer', 'welcomeImage', 'finalImage', 'agendaIntro', 'agenda', 'joinShortUrl'];
 router.post('/session/:code/content', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const { scope, sectionKey, field, value } = req.body;
   if (!field || !['meta', 'robot', 'section'].includes(scope)) return res.status(400).json({ error: 'bad content update' });
   let config;
@@ -872,7 +907,7 @@ router.post('/session/:code/content', (req, res) => {
 
 // Accept a base64 image, store it beside the DB, return a served URL.
 router.post('/session/:code/upload', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(req.body.dataUrl || '');
   if (!m) return res.status(400).json({ error: 'Expected a base64 image data URL.' });
   const buf = Buffer.from(m[2], 'base64');
@@ -888,7 +923,7 @@ router.post('/session/:code/upload', (req, res) => {
 // ---------- control token ----------------------------------------------------
 
 router.post('/session/:code/control/take', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  const s = requireFac(req, res); if (!s) return;
   db.prepare('UPDATE sessions SET control_device_id = ? WHERE code = ?').run(req.body.deviceId || null, s.code);
   logActivity({ session_code: s.code, action: 'take_control', new_value: req.body.deviceId });
   ok(res, s.code, req);
@@ -897,15 +932,13 @@ router.post('/session/:code/control/take', (req, res) => {
 // ---------- exports ----------------------------------------------------------
 
 router.get('/session/:code/export/section/:order', (req, res) => {
-  const s = getSession(req.params.code);
-  if (!s) return res.status(404).send('not found');
+  const s = requireFac(req, res); if (!s) return;
   const md = renderSection(s.code, Number(req.params.order), { heading: '#' });
   sendMarkdown(res, `${s.code}_section_${req.params.order}.md`, md);
 });
 
 router.get('/session/:code/export/brief', (req, res) => {
-  const s = getSession(req.params.code);
-  if (!s) return res.status(404).send('not found');
+  const s = requireFac(req, res); if (!s) return; // includes the consented-emails table
   const md = buildBriefPackage(s.code);
   // Persist a copy to /exports for the facilitator.
   try {
@@ -922,7 +955,8 @@ router.get('/session/:code/export/brief', (req, res) => {
 // Add synthetic participants drawn from the 50-person pool, each carrying canned
 // per-section answers used later when simulating their group's submission.
 router.post('/session/:code/sim/participants', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  if (!simAllowed()) return res.status(403).json({ error: 'Simulation is disabled on this deployment (set ALLOW_SIM=1 to enable).' });
+  const s = requireFac(req, res); if (!s) return;
   const count = Math.max(1, Math.min(20, Number(req.body.count) || 2));
   const existingSim = db
     .prepare("SELECT COUNT(*) n FROM participants WHERE session_code = ? AND sim_answers IS NOT NULL")
@@ -949,7 +983,8 @@ router.post('/session/:code/sim/participants', (req, res) => {
 // Simulate one group's submission for the current section, using its recorder's
 // canned answers. Testing shortcut: works regardless of the open/closed gate.
 router.post('/session/:code/sim/submission', (req, res) => {
-  const s = requireSession(res, req.params.code); if (!s) return;
+  if (!simAllowed()) return res.status(403).json({ error: 'Simulation is disabled on this deployment (set ALLOW_SIM=1 to enable).' });
+  const s = requireFac(req, res); if (!s) return;
   if (!s.current_section) return res.status(409).json({ error: 'No active section.' });
   const secRow = db.prepare('SELECT key FROM sections WHERE session_code = ? AND section_order = ?').get(s.code, s.current_section);
   const groups = db.prepare('SELECT * FROM groups WHERE session_code = ? ORDER BY sort_order').all(s.code);
@@ -984,6 +1019,26 @@ function requireSession(res, code) {
   const s = getSession(code);
   if (!s) { res.status(404).json({ error: 'Session not found' }); return null; }
   return s;
+}
+// The facilitator key travels as a header (API calls), query param (download
+// links), or body field (sendBeacon can't set headers).
+function getKey(req) {
+  return req.get('x-facilitator-key') || req.query.key || (req.body && req.body.facilitatorKey) || '';
+}
+// Facilitator-only gate. Sessions created before keys existed (facilitator_key
+// NULL) pass unchallenged so live legacy sessions keep working.
+function requireFac(req, res) {
+  const s = getSession(req.params.code);
+  if (!s) { res.status(404).json({ error: 'Session not found' }); return null; }
+  if (s.facilitator_key && getKey(req) !== s.facilitator_key) {
+    res.status(403).json({ error: 'Facilitator key required — open this deck from the session-created link.' });
+    return null;
+  }
+  return s;
+}
+// Simulation is a testing aid: always available locally, opt-in on a host.
+function simAllowed() {
+  return process.env.ALLOW_SIM === '1' || !process.env.RENDER;
 }
 function ok(res, code, req) {
   touch(code);

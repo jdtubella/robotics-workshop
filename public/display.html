@@ -105,20 +105,26 @@ function getQr(code) {
 // The parts of state that actually affect what's drawn (everything EXCEPT the
 // ticking timer, which updates itself). Used to skip needless re-renders.
 function viewSignature(s) {
+  const cfg = s.config || {};
   return JSON.stringify({
     st: s.session.status, sec: s.session.currentSection, sub: s.session.submissionStatus,
     sel: s.session.selectedGroupId, pub: s.session.publicNames,
     notesShared: s.session.notesShared, share: s.shareBase,
-    joinShort: s.config ? s.config.joinShortUrl : null,
-    secKey: s.currentSection ? s.currentSection.key : null,
-    agenda: s.config ? [s.config.agendaIntro, ...(s.config.agenda || [])].join('|') : null,
+    // Every piece of live-editable content is covered, so an "Edit Display"
+    // change repaints the projector on the next poll — not on the next slide.
+    meta: [cfg.workshopTitle, cfg.purpose, cfg.disclaimer, cfg.welcomeImage, cfg.finalImage, cfg.joinShortUrl],
+    agenda: [cfg.agendaIntro, ...(cfg.agenda || [])].join('|'),
+    robot: JSON.stringify(cfg.robot || {}),
+    secContent: s.currentSection
+      ? [s.currentSection.key, s.currentSection.title, s.currentSection.mainPrompt,
+         s.currentSection.scenario, s.currentSection.image, (s.currentSection.discuss || []).join('§')]
+      : null,
     order: s.sections.map((x) => x.title),
     parts: s.participants.map((p) => [p.id, p.name, p.company, p.groupId, p.isPresenter, p.isRecorder]),
     groups: s.groups.map((g) => [g.id, g.name, g.status, g.heardCount, g.memberIds.join(',')]),
     subs: (s.submissions || []).map((x) => [x.id, x.groupId, x.submitted, x.summary]),
     selAns: (s.selectedGroupAnswers || []).map((a) => [a.sectionOrder, a.summary, a.answers.length]),
     notes: (s.sharedNotes || []).map((n) => [n.id, n.body, n.keyPoint]),
-    robot: s.config && s.config.robot ? s.config.robot.name : null,
   });
 }
 

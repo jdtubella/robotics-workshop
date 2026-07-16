@@ -152,11 +152,16 @@ ensureColumn('participants', 'sim_answers', 'TEXT'); // canned per-section answe
 ensureColumn('sessions', 'spin', 'TEXT'); // transient wheel-of-fortune spin signal for the display
 ensureColumn('groups', 'presented_round', 'INTEGER'); // round in which a group presented (persists across rounds)
 ensureColumn('sessions', 'content', 'TEXT'); // per-session content overrides (edited display text + uploaded images)
-ensureColumn('sessions', 'recording_active', 'INTEGER NOT NULL DEFAULT 0'); // facilitator is recording -> show REC light on the room display
+ensureColumn('sessions', 'recording_active', 'INTEGER NOT NULL DEFAULT 0'); // last recording heartbeat (epoch ms) -> REC light on the room display
+ensureColumn('sessions', 'facilitator_key', 'TEXT'); // secret minted at creation; required for facilitator/mutating endpoints
 
-// Uploaded images live under assets/ so they're committed with the repo and
-// deploy alongside the config that references them.
-const UPLOADS_DIR = path.join(__dirname, '..', 'assets', 'uploads');
+// Uploads: locally they live under assets/ (committed with the repo); on Render
+// they go on the persistent disk beside the DB — the repo path is a deploy
+// artifact that gets wiped on every restart. The server serves /assets/uploads
+// from this dir first, falling back to the repo copies.
+const UPLOADS_DIR = process.env.RENDER
+  ? path.join(DB_DIR, 'uploads')
+  : path.join(__dirname, '..', 'assets', 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 // Audio recordings are runtime data — store them next to the DB (the persistent

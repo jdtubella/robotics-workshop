@@ -481,9 +481,9 @@ function renderNotes(s) {
 function renderExports(s) {
   const box = el('exportBtns'); clear(box);
   for (const sec of s.sections) {
-    box.appendChild(h('a', { class:'btn small', href:`/api/session/${WS.session}/export/section/${sec.section_order}`, download:'' }, `§${sec.section_order} .md`));
+    box.appendChild(h('a', { class:'btn small', href: WS.keyed(`/api/session/${WS.session}/export/section/${sec.section_order}`), download:'' }, `§${sec.section_order} .md`));
   }
-  el('briefBtn').href = `/api/session/${WS.session}/export/brief`;
+  el('briefBtn').href = WS.keyed(`/api/session/${WS.session}/export/brief`);
 }
 
 // ---- Saved recordings (server-persisted) -----------------------------------
@@ -496,8 +496,8 @@ async function loadRecordings() {
       const row = h('div', { class:'row-item mini' }, [
         h('span', { text: it.label || ('Round ' + it.sectionOrder) }),
         h('span', { style:'margin-left:auto;' }, [
-          it.audioUrl ? h('a', { class:'btn small', href: it.audioUrl, download:'', style:'margin-right:6px;' }, '⬇ audio') : h('span', { class:'mute', text:'no audio ' }),
-          it.hasTranscript ? h('a', { class:'btn small', href:`/api/session/${WS.session}/transcript/${it.id}`, download:'' }, '⬇ text') : null,
+          it.audioUrl ? h('a', { class:'btn small', href: WS.keyed(it.audioUrl), download:'', style:'margin-right:6px;' }, '⬇ audio') : h('span', { class:'mute', text:'no audio ' }),
+          it.hasTranscript ? h('a', { class:'btn small', href: WS.keyed(`/api/session/${WS.session}/transcript/${it.id}`), download:'' }, '⬇ text') : null,
         ]),
       ]);
       list.appendChild(row);
@@ -550,10 +550,15 @@ function recInfo(s) {
     default:           return { key: st || 'stage', section: 0, label: st || 'Stage' };
   }
 }
+let recHeartbeat = null;
 function showRec(on) {
   el('recIndicator').classList.toggle('hidden', !on);
-  // Tell the server so the room display can show its own REC light.
+  // Tell the server so the room display can show its own REC light. While
+  // recording, re-post every 10s as a heartbeat — the server auto-clears the
+  // light if heartbeats stop (crashed laptop), so it can never stick on.
   WS.post(`/session/${WS.session}/recording`, { active: !!on }).catch(() => {});
+  clearInterval(recHeartbeat); recHeartbeat = null;
+  if (on) recHeartbeat = setInterval(() => WS.post(`/session/${WS.session}/recording`, { active: true }).catch(() => {}), 10000);
 }
 function downloadBlob(blob, name) {
   const a = document.createElement('a');
@@ -701,7 +706,8 @@ function wire() {
   // If the facilitator closes/navigates away mid-recording, clear the room
   // display's REC light so it doesn't stay stuck on.
   window.addEventListener('pagehide', () => {
-    try { navigator.sendBeacon(`/api/session/${WS.session}/recording`, new Blob([JSON.stringify({ active: false })], { type: 'application/json' })); } catch (_) {}
+    // sendBeacon can't set headers, so the key rides in the body.
+    try { navigator.sendBeacon(`/api/session/${WS.session}/recording`, new Blob([JSON.stringify({ active: false, facilitatorKey: WS.fkey || undefined })], { type: 'application/json' })); } catch (_) {}
   });
 
   el('autoRec').addEventListener('change', async (e) => {

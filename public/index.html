@@ -60,7 +60,9 @@ WS.init();
 el('createBtn').addEventListener('click', async () => {
   el('createBtn').disabled = true;
   try {
-    const { code } = await WS.post('/sessions');
+    const { code, facilitatorKey } = await WS.post('/sessions');
+    // The key is shown once and kept on this device; the facilitator link carries it.
+    if (facilitatorKey) localStorage.setItem('ws_fkey_' + code, facilitatorKey);
     showLinks(code);
   } catch (e) { toast(e.message, true); el('createBtn').disabled = false; }
 });
@@ -76,10 +78,11 @@ el('resumeBtn').addEventListener('click', async () => {
 
 function showLinks(code) {
   el('codeOut').textContent = code;
-  const base = location.origin;
+  const fkey = localStorage.getItem('ws_fkey_' + code);
+  const keyq = fkey ? `&key=${encodeURIComponent(fkey)}` : '';
   const links = [
     ['Room Display', `/display?session=${code}`, 'Projector / shared screen'],
-    ['Facilitator', `/facilitator?session=${code}`, 'Your control deck'],
+    ['Facilitator', `/facilitator?session=${code}${keyq}`, 'Your control deck (carries your facilitator key)'],
     ['Join', `/join?session=${code}`, 'Participant registration'],
   ];
   const wrap = el('links'); clear(wrap);

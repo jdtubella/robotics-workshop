@@ -73,6 +73,9 @@ WS.init();
 const PID = WS.qs.get('participant');
 let countdown, currentSectionOrder = null, myGroupId = null, isRecorder = false;
 let dirty = false, lastServerResp = {}, lastServerSummary = '';
+// Per-field dirty tracking: we only send fields THIS person touched, so several
+// phones can fill different fields of the same answer without overwriting each other.
+let dirtyFields = new Set(), summaryTouched = false;
 
 function boot() {
   if (!WS.session || !PID) { el('loading').textContent = 'Missing session or participant.'; return; }
@@ -152,19 +155,21 @@ function renderSection(state, group, me) {
     for (const f of sec.fields) {
       wrap.appendChild(h('label', { class: 'field' }, [
         h('span', { class: 'label', text: f.label }),
-        h('textarea', { id: 'f_' + f.key, 'data-key': f.key, oninput: () => { dirty = true; el('saveStatus').textContent = 'Unsaved changes'; } }),
+        h('textarea', { id: 'f_' + f.key, 'data-key': f.key, oninput: (e) => { dirty = true; dirtyFields.add(f.key); el('saveStatus').textContent = 'Unsaved changes'; } }),
       ]));
     }
     el('fields').querySelectorAll('textarea').forEach((t) => { t.value = lastServerResp[t.dataset.key] || ''; });
     el('summary').value = lastServerSummary;
-    dirty = false;
-  } else if (!dirty && mySub) {
-    // Passive refresh from server if the recorder hasn't started typing.
+    dirty = false; dirtyFields = new Set(); summaryTouched = false;
+  } else if (mySub) {
+    // Passive refresh: pull in teammates' edits for every field this person
+    // hasn't touched (and isn't focused on) — a live collaborative answer.
     el('fields').querySelectorAll('textarea').forEach((t) => {
+      if (dirtyFields.has(t.dataset.key) || document.activeElement === t) return;
       const v = (mySub.response || {})[t.dataset.key] || '';
-      if (t.value !== v && document.activeElement !== t) t.value = v;
+      if (t.value !== v) t.value = v;
     });
-    if (document.activeElement !== el('summary') && mySub.summary != null) el('summary').value = mySub.summary || '';
+    if (!summaryTouched && document.activeElement !== el('summary') && mySub.summary != null) el('summary').value = mySub.summary || '';
   }
 
   // enable/disable editing — any group member can contribute while the round is open.
@@ -181,20 +186,26 @@ function renderSection(state, group, me) {
 }
 
 function collect() {
+  // Only the fields this person touched — an empty touched field means "delete".
   const response = {};
-  el('fields').querySelectorAll('textarea').forEach((t) => { if (t.value.trim()) response[t.dataset.key] = t.value.trim(); });
+  el('fields').querySelectorAll('textarea').forEach((t) => {
+    if (dirtyFields.has(t.dataset.key)) response[t.dataset.key] = t.value.trim();
+  });
   return { response, summary: el('summary').value.trim() };
 }
 async function save(submit) {
   const { response, summary } = collect();
   try {
-    const r = await WS.post(`/session/${WS.session}/submission`, { participantId: PID, response, summary, submit });
-    dirty = false;
+    const r = await WS.post(`/session/${WS.session}/submission`, {
+      participantId: PID, response, summary, submit, summaryTouched,
+    });
+    dirty = false; dirtyFields = new Set(); summaryTouched = false;
     el('saveStatus').textContent = submit ? 'Submitted ✓' : 'Saved ✓';
     toast(submit ? 'Submitted!' : 'Draft saved');
     if (r.state) render(r.state);
   } catch (e) { toast(e.message, true); }
 }
+el('summary').addEventListener('input', () => { dirty = true; summaryTouched = true; el('saveStatus').textContent = 'Unsaved changes'; });
 el('saveBtn').addEventListener('click', () => save(false));
 el('submitBtn').addEventListener('click', () => save(true));
 
