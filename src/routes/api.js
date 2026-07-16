@@ -1079,9 +1079,10 @@ function requireFac(req, res) {
   }
   return s;
 }
-// Simulation is a testing aid: always available locally, opt-in on a host.
+// Simulation is a testing aid. On by default (the buttons live in a collapsed,
+// key-gated "Testing tools" drawer); set ALLOW_SIM=0 to hide it for a real audience.
 function simAllowed() {
-  return process.env.ALLOW_SIM === '1' || !process.env.RENDER;
+  return process.env.ALLOW_SIM !== '0';
 }
 function ok(res, code, req) {
   touch(code);
