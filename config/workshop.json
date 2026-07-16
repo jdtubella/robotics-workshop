@@ -143,5 +143,10 @@
     "Technology provider",
     "Other"
   ],
-  "displayLayout": {}
+  "displayLayout": {
+    "robot": {
+      "font": 0.1,
+      "img": 0.15
+    }
+  }
 }

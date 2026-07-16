@@ -592,28 +592,28 @@ function robot(state) {
   ]) : null;
   const real = uniqueImageList(r.images);
   const imgs = real.length ? real : ['/assets/robot/robot-placeholder.svg'];
-  // Image leads (55% width, cycling). The right column carries only the short,
-  // high-value text; the three descriptive lists get a full-width band below so
-  // large type has room to breathe instead of wrapping inside a narrow grid cell.
+  // Same shape as the Define slide: one flowing row — all the text on the left
+  // (lists in a 2×2 grid so it fills the height), image on the right. No detached
+  // band, so there's no mid-page dead zone and shrinking the text truly compacts it.
   return h('div', { class:'col grow' }, [
     head(state),
-    h('div', { class:'row', style:'gap:36px; align-items:stretch;' }, [
-      imageGallery(imgs, imgs[0], 'robot', { style:'flex:1 1 55%; min-width:0;', featureStyle:'width:100%; height:auto;', autoRotateMs: 10000, resizable:true, baseVw:52 }),
-      h('div', { class:'col', style:'flex:1 1 45%; min-width:0; gap:12px;' }, [
+    h('div', { class:'row', style:'gap:40px; align-items:flex-start;' }, [
+      h('div', { class:'col grow', style:'min-width:0; gap:12px;' }, [
         h('div', {}, [
           h('div', { class:'label', text:'THE FICTIONAL ROBOT' }),
           h('h1', { class:'display', style:'font-size:clamp(2.4rem,3vw,3.4rem);', text: r.name || 'ROBOT — TBD' }),
           r.tagline ? h('p', { class:'accent', style:'font-size:clamp(1.2rem,1.5vw,1.6rem); margin-top:2px;', text: r.tagline }) : null,
         ]),
-        r.task ? h('p', { class:'dim', style:'font-size:clamp(1.25rem,1.7vw,1.75rem); line-height:1.45;' }, [ h('b',{text:'Task: '}), r.task ]) : null,
-        r.environment ? h('p', { class:'dim', style:'font-size:clamp(1.25rem,1.7vw,1.75rem); line-height:1.45;' }, [ h('b',{text:'Environment: '}), r.environment ]) : null,
-        list('YOUR JOB IS TO DEFINE', r.unresolvedQuestions),
+        r.task ? h('p', { class:'dim', style:'font-size:clamp(1.2rem,1.6vw,1.65rem); line-height:1.45;' }, [ h('b',{text:'Task: '}), r.task ]) : null,
+        r.environment ? h('p', { class:'dim', style:'font-size:clamp(1.2rem,1.6vw,1.65rem); line-height:1.45;' }, [ h('b',{text:'Environment: '}), r.environment ]) : null,
+        h('div', { class:'grid cols-2', style:'gap:16px 40px; margin-top:6px;' }, [
+          list('HOW IT WORKS', r.process),
+          list('WHAT WE ALREADY KNOW', r.assumptions),
+          list('OPERATING LIMITS', r.constraints),
+          list('YOUR JOB IS TO DEFINE', r.unresolvedQuestions),
+        ]),
       ]),
-    ]),
-    h('div', { class:'grid cols-3', style:'gap:16px 32px; margin-top:18px;' }, [
-      list('HOW IT WORKS', r.process),
-      list('WHAT WE ALREADY KNOW', r.assumptions),
-      list('OPERATING LIMITS', r.constraints),
+      imageGallery(imgs, imgs[0], 'robot', { style:'flex:0 0 auto; width:min(48vw,780px);', featureStyle:'width:100%; height:auto;', autoRotateMs: 10000, resizable:true, baseVw:44 }),
     ]),
   ]);
 }
