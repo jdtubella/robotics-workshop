@@ -13,6 +13,16 @@
     "Group presentation + conversation — one group is picked to share",
     "Wrap-up"
   ],
+  "facilitatorScript": {
+    "welcome": "Welcome everyone! While we get settled, grab your phone and scan the QR code on the screen — registration takes 30 seconds. You'll use your phone to submit your group's ideas today, so tell us your name, company, and whether you're willing to present or take notes.",
+    "agenda": "Here's how the next hour runs. We'll meet a fictional construction robot, split into small groups, and spend one working session defining what it must do and how it stays safe. One group presents at the end, and everything you type becomes a preliminary requirements brief.",
+    "roster": "As you register, you'll appear up on the screen. If you haven't joined yet, scan the QR code or type the short link. Everyone in the room should be on this board before we form groups.",
+    "groups": "Find your group name on the screen and sit together. The microphone icon is your presenter — they'll share if your group is picked at the end. The pencil is your recorder — they type your group's answer while everyone contributes out loud.",
+    "robot": "Meet the Autonomous Hydrovac. It verifies buried utilities the same way crews do today — pressurized water and vacuum excavation — except autonomously. Here's what it does, what we already know, and the four things we haven't decided. That last list is your job today.",
+    "define_robot": "This is the working session — fifteen minutes on the clock. Your recorder has five questions in front of them: who uses this robot, what it must be able to do, how it fits your jobsite workflow, its top hazards and the controls that manage them, and what a safe failure looks like. Talk it out as a group; the recorder captures your answer.",
+    "discussion": "Time's up — pencils down! The wheel has picked our presenting group. Your presenter, walk us through what your group decided, and then we'll open it up to the room.",
+    "final": "That's our hour — thank you! If you opted in with your email, you'll receive the requirements brief we build from today's input. Remember: this is stakeholder intelligence, not an approved PRD — but it's exactly how a real one starts."
+  },
   "robot": {
     "name": "Autonomous Hydrovac",
     "tagline": "SUB-LOGIX ",

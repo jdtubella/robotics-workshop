@@ -97,11 +97,17 @@
           <p class="dim mini" id="secPrompt"></p>
         </div>
 
-        <!-- Read-aloud crib sheet: the active round's prompt + discussion questions. -->
-        <div id="readPanel" class="panel col hidden" style="border-left:3px solid var(--accent);">
-          <div class="label">📣 READ ALOUD — <span id="readTitle"></span></div>
-          <p id="readPrompt" class="accent" style="font-weight:700; margin:6px 0 0;"></p>
-          <ul id="readDiscuss" class="dim" style="font-size:0.95rem; margin:8px 0 0; padding-left:18px;"></ul>
+        <!-- Read-aloud crib sheet for the CURRENT slide. The script is edited right
+             here and saves to the config (this session + all future ones). -->
+        <div id="readPanel" class="panel col" style="border-left:3px solid var(--accent);">
+          <div class="spread"><div class="label">📣 READ ALOUD — <span id="readTitle"></span></div>
+            <span class="mini mute" id="readSaved"></span></div>
+          <textarea id="readScript" rows="4" placeholder="What you'll say on this slide — type here, it saves automatically."
+            style="font-size:1rem; line-height:1.5; color:var(--text); background:transparent; border:1px dashed var(--line-2);"></textarea>
+          <div id="readRound" class="hidden">
+            <p id="readPrompt" class="accent" style="font-weight:700; margin:8px 0 0;"></p>
+            <ul id="readDiscuss" class="dim" style="font-size:0.95rem; margin:8px 0 0; padding-left:18px;"></ul>
+          </div>
         </div>
 
         <!-- Record + transcribe (auto per slide) -->
@@ -336,13 +342,38 @@ function renderSection(s) {
   el('secNum').textContent = s.session.currentSection || 0;
   el('secTitle').textContent = s.currentSection ? s.currentSection.title : '(none)';
   el('secPrompt').textContent = s.currentSection ? s.currentSection.mainPrompt : '';
+  renderReadAloud(s);
+}
 
-  // Read-aloud crib sheet while a round (or its discussion) is on screen.
+// ---- Read-aloud crib sheet: one editable script per slide -------------------
+// The script lives in config.facilitatorScript keyed by the stage token (rounds
+// use their section key, the presentation uses 'discussion').
+let lastReadKey = null;
+function readKeyFor(s) {
+  const st = s.session.status;
+  if (st === 'section') return s.currentSection ? s.currentSection.key : 'section';
+  if (st === 'discussion') return 'discussion';
+  return st;
+}
+function renderReadAloud(s) {
+  const st = s.session.status;
   const sec = s.currentSection;
-  const showRead = !!sec && ['section', 'discussion'].includes(s.session.status);
-  el('readPanel').classList.toggle('hidden', !showRead);
-  if (showRead) {
-    el('readTitle').textContent = sec.title.toUpperCase();
+  const inRound = ['section', 'discussion'].includes(st);
+  el('readTitle').textContent = (inRound && sec ? (st === 'discussion' ? 'Presentation' : sec.title)
+    : STAGE_LABELS[st] || st).toUpperCase();
+
+  const key = readKeyFor(s);
+  const scripts = (s.config && s.config.facilitatorScript) || {};
+  const ta = el('readScript');
+  ta.dataset.key = key;
+  // Fill on slide change; on idle polls only refresh when not being typed in.
+  if (key !== lastReadKey) { lastReadKey = key; ta.value = scripts[key] || ''; el('readSaved').textContent = ''; }
+  else if (document.activeElement !== ta && ta.value !== (scripts[key] || '')) ta.value = scripts[key] || '';
+
+  // Rounds also show the on-screen prompt + discussion questions to read off.
+  const showRound = inRound && !!sec;
+  el('readRound').classList.toggle('hidden', !showRound);
+  if (showRound) {
     el('readPrompt').textContent = sec.mainPrompt || '';
     const ul = el('readDiscuss'); clear(ul);
     for (const q of sec.discuss || []) ul.appendChild(h('li', { text: q }));
@@ -702,6 +733,15 @@ function wire() {
     const d = state && state.currentSection && state.currentSection.defaultTimer;
     if (d) post(`/session/${WS.session}/timer`, { action:'start', durationSeconds: d });
   });
+  // Read-aloud script: saves on blur/change into config.facilitatorScript.
+  el('readScript').addEventListener('change', async (e) => {
+    const key = e.target.dataset.key;
+    if (!key) return;
+    const r = await saveContent('script', null, key, e.target.value);
+    if (r) el('readSaved').textContent = 'saved ✓';
+    setTimeout(() => { el('readSaved').textContent = ''; }, 2000);
+  });
+
   el('arrangeBtn').addEventListener('click', () => {
     arrangeMode = !arrangeMode;
     el('arrangeBtn').classList.toggle('active', arrangeMode);

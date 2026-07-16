@@ -158,15 +158,18 @@ function ensureTimerSmall() {
 }
 
 // The projector is a non-interactive surface — nobody stands there scrolling.
-// After every render, scale the stage down just enough that the whole state
-// fits the viewport (floor at 0.55 so text stays legible; beyond that, scroll).
+// After every render, scale the stage BOTH ways: shrink just enough to fit, or
+// grow (up to 1.35×) to fill the screen — maximum possible text size everywhere.
 function fitStage() {
   const stage = el('stage');
+  // Measure the TRUE content height (min-height would peg it at 100vh).
   stage.style.zoom = '';
+  stage.style.minHeight = '0';
   const need = stage.scrollHeight;
-  if (need > window.innerHeight + 4) {
-    stage.style.zoom = String(Math.max(0.55, window.innerHeight / need));
-  }
+  const zoom = Math.min(1.35, Math.max(0.55, window.innerHeight / need));
+  if (zoom < 0.99 || zoom > 1.02) stage.style.zoom = String(zoom);
+  // Restore a full-screen stage under whatever zoom was applied.
+  stage.style.minHeight = Math.floor(window.innerHeight / (Number(stage.style.zoom) || 1)) + 'px';
 }
 window.addEventListener('resize', fitStage);
 
@@ -461,34 +464,35 @@ function roster(state) {
 
 function robot(state) {
   const r = (state.config && state.config.robot) || {};
+  // Older audience: type scales with the screen (clamp), not fixed small sizes.
   const list = (title, arr) => arr && arr.length ? h('div', {}, [
-    h('div', { class:'label', text:title }),
-    h('ul', { class:'big-list dim', style:'font-size:0.98rem; margin-top:6px; padding-left:20px;' }, arr.map((x) => h('li', { text:x }))),
+    h('div', { class:'label', style:'font-size:clamp(0.7rem,0.95vw,0.95rem);', text:title }),
+    h('ul', { class:'big-list', style:'color:var(--text-dim); font-size:clamp(1.2rem,1.6vw,1.65rem); line-height:1.4; margin-top:6px; padding-left:22px;' }, arr.map((x) => h('li', { text:x }))),
   ]) : null;
   const real = uniqueImageList(r.images);
   const imgs = real.length ? real : ['/assets/robot/robot-placeholder.svg'];
-  // Image leads: it takes the majority of the width and most of the height.
-  // The four lists sit in a 2×2 grid so the text column stays short — which
-  // keeps the auto-fit zoom near 1 and the type large.
+  // Image leads (55% width, cycling). The right column carries only the short,
+  // high-value text; the three descriptive lists get a full-width band below so
+  // large type has room to breathe instead of wrapping inside a narrow grid cell.
   return h('div', { class:'col grow' }, [
     head(state),
-    h('div', { class:'row grow', style:'gap:36px; align-items:stretch;' }, [
-      imageGallery(imgs, imgs[0], 'robot', { style:'flex:1 1 58%; min-width:0;', featureStyle:'width:100%; max-height:68vh;', autoRotateMs: 10000 }),
-      h('div', { class:'col', style:'flex:1 1 42%; min-width:0; gap:12px;' }, [
+    h('div', { class:'row', style:'gap:36px; align-items:stretch;' }, [
+      imageGallery(imgs, imgs[0], 'robot', { style:'flex:1 1 55%; min-width:0;', featureStyle:'width:100%; max-height:56vh;', autoRotateMs: 10000 }),
+      h('div', { class:'col', style:'flex:1 1 45%; min-width:0; gap:12px;' }, [
         h('div', {}, [
           h('div', { class:'label', text:'THE FICTIONAL ROBOT' }),
-          h('h1', { class:'display', style:'font-size:2.7rem;', text: r.name || 'ROBOT — TBD' }),
-          r.tagline ? h('p', { class:'accent', style:'font-size:1.1rem; margin-top:2px;', text: r.tagline }) : null,
+          h('h1', { class:'display', style:'font-size:clamp(2.4rem,3vw,3.4rem);', text: r.name || 'ROBOT — TBD' }),
+          r.tagline ? h('p', { class:'accent', style:'font-size:clamp(1.2rem,1.5vw,1.6rem); margin-top:2px;', text: r.tagline }) : null,
         ]),
-        r.task ? h('p', { class:'dim', style:'font-size:1rem;' }, [ h('b',{text:'Task: '}), r.task ]) : null,
-        r.environment ? h('p', { class:'dim', style:'font-size:1rem;' }, [ h('b',{text:'Environment: '}), r.environment ]) : null,
-        h('div', { class:'grid cols-2', style:'gap:14px 28px; margin-top:4px;' }, [
-          list('HOW IT WORKS', r.process),
-          list('WHAT WE ALREADY KNOW', r.assumptions),
-          list('OPERATING LIMITS', r.constraints),
-          list('YOUR JOB IS TO DEFINE', r.unresolvedQuestions),
-        ]),
+        r.task ? h('p', { class:'dim', style:'font-size:clamp(1.25rem,1.7vw,1.75rem); line-height:1.45;' }, [ h('b',{text:'Task: '}), r.task ]) : null,
+        r.environment ? h('p', { class:'dim', style:'font-size:clamp(1.25rem,1.7vw,1.75rem); line-height:1.45;' }, [ h('b',{text:'Environment: '}), r.environment ]) : null,
+        list('YOUR JOB IS TO DEFINE', r.unresolvedQuestions),
       ]),
+    ]),
+    h('div', { class:'grid cols-3', style:'gap:16px 32px; margin-top:18px;' }, [
+      list('HOW IT WORKS', r.process),
+      list('WHAT WE ALREADY KNOW', r.assumptions),
+      list('OPERATING LIMITS', r.constraints),
     ]),
   ]);
 }
@@ -529,10 +533,10 @@ function section(state) {
     state.groups.length ? null : h('span', { class:'mute mono', text:'no groups yet' }),
   ]);
   const discuss = (sec.discuss && sec.discuss.length)
-    ? h('div', { style:'margin-top:12px;' }, [
-        h('div', { class:'label', text:'DISCUSS' }),
-        h('div', { class:'grid cols-2', style:'gap:2px 32px; margin-top:6px;' },
-          sec.discuss.map((q) => h('div', { class:'dim', style:'font-size:0.92rem;', text: '· ' + q }))),
+    ? h('div', { style:'margin-top:14px;' }, [
+        h('div', { class:'label', style:'font-size:clamp(0.7rem,0.95vw,0.95rem);', text:'DISCUSS' }),
+        h('div', { class:'grid cols-2', style:'gap:6px 32px; margin-top:8px;' },
+          sec.discuss.map((q) => h('div', { class:'dim', style:'font-size:clamp(1.2rem,1.6vw,1.65rem);', text: '· ' + q }))),
       ])
     : null;
   // Feature = this round's image; thumbnails = the other robot photos.
@@ -544,9 +548,9 @@ function section(state) {
     h('div', { class:'row grow', style:'gap:40px; align-items:flex-start;' }, [
       h('div', { class:'grow', style:'display:flex; flex-direction:column;' }, [
         h('div', { class:'label', text: state.sections.length > 1 ? `ROUND ${sec.order||''}` : 'GROUP EXERCISE' }),
-        h('h1', { style:'font-size:2.6rem;', text: sec.title || '—' }),
-        h('p', { class:'accent', style:'font-size:1.3rem; max-width:48ch; margin-top:10px;', text: sec.mainPrompt || '' }),
-        h('p', { class:'dim', style:'font-size:1rem; max-width:56ch; margin-top:8px;', text: sec.scenario || sec.objective || '' }),
+        h('h1', { style:'font-size:clamp(2.4rem,3.2vw,3.4rem);', text: sec.title || '—' }),
+        h('p', { class:'accent', style:'font-size:clamp(1.5rem,2.1vw,2.2rem); max-width:48ch; margin-top:10px;', text: sec.mainPrompt || '' }),
+        h('p', { class:'dim', style:'font-size:clamp(1.25rem,1.7vw,1.75rem); max-width:60ch; margin-top:10px;', text: sec.scenario || sec.objective || '' }),
         discuss,
       ]),
       secImages.length

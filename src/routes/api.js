@@ -271,6 +271,7 @@ function buildState(code, { participantId } = {}) {
       welcomeImage: pick(meta, 'welcomeImage', baseCfg.welcomeImage),
       finalImage: pick(meta, 'finalImage', baseCfg.finalImage),
       joinShortUrl: pick(meta, 'joinShortUrl', baseCfg.joinShortUrl),
+      facilitatorScript: baseCfg.facilitatorScript || {},
       roleCategories: baseCfg.roleCategories,
       defaults: baseCfg.defaults,
     },
@@ -885,7 +886,7 @@ const META_FIELDS = ['workshopTitle', 'purpose', 'disclaimer', 'welcomeImage', '
 router.post('/session/:code/content', (req, res) => {
   const s = requireFac(req, res); if (!s) return;
   const { scope, sectionKey, field, value } = req.body;
-  if (!field || !['meta', 'robot', 'section'].includes(scope)) return res.status(400).json({ error: 'bad content update' });
+  if (!field || !['meta', 'robot', 'section', 'script'].includes(scope)) return res.status(400).json({ error: 'bad content update' });
   let config;
   try { config = loadConfig(); } catch (e) { return res.status(500).json({ error: 'Could not read config.' }); }
 
@@ -895,6 +896,10 @@ router.post('/session/:code/content', (req, res) => {
   } else if (scope === 'robot') {
     config.robot = config.robot || {};
     config.robot[field] = field === 'images' ? uniqueImageUrls(value) : value;
+  } else if (scope === 'script') {
+    // Facilitator's read-aloud script for a stage (keyed by stage/section token).
+    config.facilitatorScript = config.facilitatorScript || {};
+    config.facilitatorScript[String(field).slice(0, 64)] = String(value == null ? '' : value);
   } else {
     const sec = (config.sections || []).find((x) => x.key === sectionKey);
     if (!sec) return res.status(400).json({ error: 'unknown section' });
