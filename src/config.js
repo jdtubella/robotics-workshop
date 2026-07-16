@@ -37,6 +37,16 @@ if (CONFIG_PATH !== REPO_CONFIG) {
   }
 }
 
+// Force the live config back to the repo copy (used by the facilitator's
+// "reset content" action — e.g. after a deploy ships new default content that
+// the edited live copy would otherwise shadow). No-op when they're the same file.
+function resetConfig() {
+  if (CONFIG_PATH === REPO_CONFIG) return;
+  const repoRaw = fs.readFileSync(REPO_CONFIG, 'utf8');
+  fs.writeFileSync(CONFIG_PATH, repoRaw);
+  fs.writeFileSync(CONFIG_PATH + '.seed', sha(repoRaw));
+}
+
 // Loaded fresh each call so edits take effect without a restart.
 function loadConfig() {
   const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
@@ -51,4 +61,4 @@ function saveConfig(config) {
   fs.renameSync(tmp, CONFIG_PATH);
 }
 
-module.exports = { loadConfig, saveConfig, CONFIG_PATH };
+module.exports = { loadConfig, saveConfig, resetConfig, CONFIG_PATH };

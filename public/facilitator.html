@@ -52,7 +52,10 @@
     <!-- Live content editor (Edit Display mode) -->
     <div id="editPanel" class="panel hud hidden" style="border-color:var(--sel);">
       <div class="spread"><div class="label" style="color:var(--sel);">✎ EDIT DISPLAY — <span id="editStage"></span></div>
-        <span class="mini mute">Changes appear on the room display within ~3s.</span></div>
+        <div class="row" style="gap:10px; align-items:center;">
+          <span class="mini mute">Changes appear on the room display within ~3s.</span>
+          <button id="resetContent" class="small ghost danger">↺ Reset all content to defaults</button>
+        </div></div>
       <div id="editBody" class="col" style="margin-top:10px;"></div>
     </div>
 
@@ -733,6 +736,11 @@ function wire() {
     const d = state && state.currentSection && state.currentSection.defaultTimer;
     if (d) post(`/session/${WS.session}/timer`, { action:'start', durationSeconds: d });
   });
+  el('resetContent').addEventListener('click', () => {
+    if (!confirm('Reset ALL workshop content (titles, scripts, round text, images) to the shipped defaults? Live edits will be lost.')) return;
+    post(`/session/${WS.session}/config/reset`).then(() => toast('Content reset to defaults'));
+  });
+
   // Read-aloud script: saves on blur/change into config.facilitatorScript.
   el('readScript').addEventListener('change', async (e) => {
     const key = e.target.dataset.key;

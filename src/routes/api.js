@@ -7,7 +7,7 @@ const { execFile } = require('child_process');
 const express = require('express');
 const QRCode = require('qrcode');
 const { db, logActivity, UPLOADS_DIR, RECORDINGS_DIR } = require('../db');
-const { loadConfig, saveConfig } = require('../config');
+const { loadConfig, saveConfig, resetConfig } = require('../config');
 const { sessionCode, uid } = require('../lib/ids');
 const { assignGroups } = require('../lib/grouping');
 const { renderSection, buildBriefPackage } = require('../lib/export');
@@ -910,6 +910,15 @@ router.post('/session/:code/content', (req, res) => {
   const isImage = (scope === 'robot' && field === 'images') || (scope === 'section' && field === 'image') || (scope === 'meta' && field === 'finalImage');
   if (isImage) autoCommit(`Editor: update ${scope}${sectionKey ? ' ' + sectionKey : ''} image`, ['config/workshop.json', 'assets/uploads']);
   logActivity({ session_code: s.code, action: 'content_edit', new_value: `${scope}.${sectionKey ? sectionKey + '.' : ''}${field}` });
+  ok(res, s.code, req);
+});
+
+// Reset the live workshop content to the repo defaults (discards live edits).
+// Needed when a deploy ships new default content that an edited live copy shadows.
+router.post('/session/:code/config/reset', (req, res) => {
+  const s = requireFac(req, res); if (!s) return;
+  try { resetConfig(); } catch (e) { return res.status(500).json({ error: 'Reset failed: ' + e.message }); }
+  logActivity({ session_code: s.code, action: 'config_reset' });
   ok(res, s.code, req);
 });
 
