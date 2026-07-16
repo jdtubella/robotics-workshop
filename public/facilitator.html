@@ -132,7 +132,8 @@
           <p class="mini mute">Submissions open automatically when a round starts.</p>
           <div class="btn-group">
             <button class="primary" id="selRandom">🎡 Spin (Random)</button>
-            <button id="selClear" class="ghost">Clear</button>
+            <button id="selClear" class="ghost">Clear pick</button>
+            <button id="selReset" class="ghost" title="Clear the pick and put every group back in the draw">↺ Reset wheel</button>
           </div>
           <div class="mini mute" id="selState"></div>
           <div class="label" style="margin-top:12px;">PRESENTED SO FAR</div>
@@ -336,6 +337,7 @@ function renderStageNav(s) {
     }
     if (idx === lastSecIdx) {
       nav.appendChild(actionStep('🎡 Spin (Random)', () => runSelect('random')));
+      nav.appendChild(actionStep('↺ Reset', () => runReset()));
     }
   });
 }
@@ -763,6 +765,7 @@ function wire() {
 
   el('selRandom').addEventListener('click', () => runSelect('random'));
   el('selClear').addEventListener('click', () => post(`/session/${WS.session}/select/clear`));
+  el('selReset').addEventListener('click', () => runReset());
 
   el('addNote').addEventListener('click', () => addNote(false));
   el('addKey').addEventListener('click', () => addNote(true));
@@ -838,6 +841,15 @@ async function runSelect(mode) {
     const r = await post(`/session/${WS.session}/select`, { mode });
     if (r) { const g = state.groups.find(x => x.id === r.groupId); el('selState').textContent = g ? `Spinning to ${g.name}… (see room display)` : ''; }
   } catch (e) { toast(e.message, true); }
+}
+
+// Full wheel reset: clears the current pick and puts every group back in the draw.
+async function runReset() {
+  if (!hasControl) return toast('Take control first', true);
+  if (!confirm('Reset the wheel? This clears the current pick and puts every group back in the draw.')) return;
+  await post(`/session/${WS.session}/select/reset`);
+  el('selState').textContent = '';
+  toast('Wheel reset — all groups back in the draw');
 }
 
 async function addNote(key) {

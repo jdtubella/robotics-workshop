@@ -482,10 +482,13 @@ function playWheel(state, spin) {
 
   const g = document.getElementById('wheelSpin');
   const R = 360 * 6 - (targetIdx * seg + seg / 2);
-  requestAnimationFrame(() => {
-    g.style.transition = 'transform 4.2s cubic-bezier(0.12,0.86,0.18,1)';
-    g.style.transform = `rotate(${R}deg)`;
-  });
+  // Reliable transition trigger: commit an explicit start, force a reflow so the
+  // browser has a "from" value, THEN set the target. (The old single rAF often
+  // applied both in one style pass, so the wheel jumped instead of spinning.)
+  g.style.transform = 'rotate(0deg)';
+  void g.getBoundingClientRect();
+  g.style.transition = 'transform 4.2s cubic-bezier(0.12,0.86,0.18,1)';
+  g.style.transform = `rotate(${R}deg)`;
   setTimeout(() => { spinning = false; lastSig = null; render(WS.lastState || state); }, 4700);
 }
 

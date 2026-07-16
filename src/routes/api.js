@@ -797,6 +797,18 @@ router.post('/session/:code/select/clear', (req, res) => {
   ok(res, s.code, req);
 });
 
+// Full reset of the wheel: clear the current pick AND put every group back in the
+// draw (wipe presented_round + heard_count), so you can spin again from scratch.
+router.post('/session/:code/select/reset', (req, res) => {
+  const s = requireFac(req, res); if (!s) return;
+  db.prepare(`UPDATE groups SET presented_round = NULL, heard_count = 0,
+              status = CASE WHEN status = 'selected' THEN 'submitted' ELSE status END
+              WHERE session_code = ?`).run(s.code);
+  db.prepare("UPDATE sessions SET selected_group_id = NULL, spin = NULL, status = 'section' WHERE code = ?").run(s.code);
+  logActivity({ session_code: s.code, action: 'select_reset' });
+  ok(res, s.code, req);
+});
+
 // ---------- notes ------------------------------------------------------------
 
 router.post('/session/:code/note', (req, res) => {
