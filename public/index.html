@@ -112,17 +112,23 @@ function rememberSession(code) {
   const list = [code, ...recentSessions().filter((c) => c !== code)].slice(0, 5);
   localStorage.setItem('ws_recent', JSON.stringify(list));
 }
+function forgetSession(code) {
+  // Removes the entry from this list only — the session itself (and this
+  // device's facilitator key for it) is untouched, so a resume still works.
+  localStorage.setItem('ws_recent', JSON.stringify(recentSessions().filter((c) => c !== code)));
+  renderRecent();
+}
 function renderRecent() {
   const codes = recentSessions();
-  if (!codes.length) return;
   const wrap = el('recentList'); clear(wrap);
+  el('recentPanel').style.display = codes.length ? 'block' : 'none';
   for (const code of codes) {
     wrap.appendChild(h('div', { class: 'row', style: 'gap:10px; align-items:center;' }, [
       h('span', { class: 'mono accent', style: 'font-weight:800; letter-spacing:0.08em;', text: code }),
       h('button', { class: 'small', onclick: () => showLinks(code) }, 'Open links'),
+      h('button', { class: 'small ghost', title: 'Remove from this list', style: 'margin-left:auto;', onclick: () => forgetSession(code) }, '✕'),
     ]));
   }
-  el('recentPanel').style.display = 'block';
 }
 renderRecent();
 </script>

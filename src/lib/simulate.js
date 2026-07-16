@@ -35,15 +35,10 @@ const BANK = {
       'Dispatch approved → self-navigate → verify marks → pothole → log find → close/protect → hand off',
       'Queue of locations → drive, confirm, excavate, capture, report, advance to next',
     ],
-    hazards: [
-      'Live utility strike, pressurized-water injection, vehicle–pedestrian collision',
-      'Open excavation, moving boom, high-pressure water near workers',
-      'Buried energized cable, vacuum entanglement, unstable truck',
-    ],
-    safety_controls: [
-      'Exclusion zone, e-stop, boom force-limiting, right-of-way yielding',
-      'Sensor-based worker detection, audible/visual alerts, geofenced dig area',
-      'Redundant stop paths, pressure limits, slow-approach near marks',
+    hazards_controls: [
+      'Live utility strike + water injection — exclusion zone, e-stop, right-of-way yielding',
+      'Open excavation + moving boom near workers — worker detection, audible alerts, geofenced dig area',
+      'Buried energized cable + vacuum entanglement — redundant stop paths, pressure limits, slow approach',
     ],
     successful_failure: [
       'Detect uncertainty, stop in a safe state, alert, and await authorized recovery',
@@ -63,6 +58,8 @@ function pick(arr, i, off) { return arr[(i + off) % arr.length]; }
 function simPerson(i) {
   const p = i % 10;
   const presentPref = p < 4 ? 'yes' : p < 6 ? 'maybe' : 'no'; // ~40% yes / 20% maybe / 40% no
+  const notesPref = i % 3 === 0 ? 'yes' : 'no';               // ~33% willing to take notes
+  const hasLaptop = i % 2 === 0 ? 'yes' : 'no';               // ~50% brought a laptop
   const name = `${FIRST[i % FIRST.length]} ${String.fromCharCode(65 + Math.floor(i / FIRST.length))}.`;
   const answers = {};
   for (const [secKey, fields] of Object.entries(BANK)) {
@@ -79,6 +76,8 @@ function simPerson(i) {
     company: COMPANIES[i % COMPANIES.length],
     role: ROLES[i % ROLES.length],
     presentPref,
+    notesPref,
+    hasLaptop,
     answers, // { sectionKey: { field: value, ..., summary } }
   };
 }

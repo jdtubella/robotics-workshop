@@ -105,6 +105,31 @@ test('everyone is assigned exactly once', () => {
   assert.strictEqual(new Set(all).size, parts.length, 'no one duplicated');
 });
 
+test('recorder prefers a notes+laptop volunteer over a random member', () => {
+  // 8 people, exactly 2 full volunteers (notes AND laptop) — wherever a
+  // volunteer lands, they must get the recorder slot.
+  const mk = (over) => {
+    const p = person(over);
+    p.notes_pref = over.notes_pref || 'no';
+    p.has_laptop = over.has_laptop || 'no';
+    return p;
+  };
+  const parts2 = [
+    mk({ present: 'yes' }), mk({ present: 'yes' }),
+    mk({ notes_pref: 'yes', has_laptop: 'yes' }), mk({ notes_pref: 'yes', has_laptop: 'yes' }),
+    mk({ notes_pref: 'yes' }), mk({ has_laptop: 'yes' }), mk({}), mk({}),
+  ];
+  const volunteerIds = new Set([parts2[2].id, parts2[3].id]);
+  const { groups } = assignGroups(parts2, { targetSize: 4 });
+  for (const g of groups) {
+    const hasVol = g.memberIds.some((id) => volunteerIds.has(id));
+    if (hasVol) {
+      assert.ok(volunteerIds.has(g.recorderId), `group ${g.name} has a volunteer but picked ${g.recorderId}`);
+    }
+    assert.ok(g.recorderId, `group ${g.name} must still get a recorder`);
+  }
+});
+
 test('empty input returns no groups and a warning', () => {
   const { groups, warnings } = assignGroups([]);
   assert.strictEqual(groups.length, 0);

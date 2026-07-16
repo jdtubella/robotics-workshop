@@ -112,12 +112,8 @@
           "label": "How it fits the jobsite workflow (before / during / after)"
         },
         {
-          "key": "hazards",
-          "label": "Top hazards"
-        },
-        {
-          "key": "safety_controls",
-          "label": "Required safety controls"
+          "key": "hazards_controls",
+          "label": "Top hazards & required safety controls"
         },
         {
           "key": "successful_failure",

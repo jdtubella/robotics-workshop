@@ -42,6 +42,10 @@
       <div id="roleNote" class="mute" style="font-size:0.8rem; margin-top:10px;"></div>
     </div>
 
+    <!-- Robot introduction mirror: while the facilitator presents the robot,
+         phones show the same picture + text. Nothing to respond to yet. -->
+    <div id="robotBox" class="panel col hidden"></div>
+
     <!-- Section prompt + form -->
     <div id="sectionBox" class="panel col">
       <div class="label" id="secLabel">WAITING FOR SECTION</div>
@@ -114,6 +118,7 @@ function render(state) {
     el('gName').textContent = 'Not assigned yet';
     el('groupName').textContent = 'GROUP';
     el('sectionBox').classList.add('hidden');
+    renderRobotMirror(state); // the robot intro shows even before groups exist
     return;
   }
   el('sectionBox').classList.remove('hidden');
@@ -134,12 +139,49 @@ function render(state) {
     ]));
   }
   const isPresenter = !!(me && me.isPresenter);
-  el('roleNote').innerHTML = isPresenter
-    ? '🎤 You are the group\'s <b>presenter</b> — if your group is picked, you share the answer. Everyone can write below.'
-    : 'Anyone in the group can write the answer below — it saves as one shared response.';
+  el('roleNote').innerHTML = isRecorder
+    ? '✏️ You are the <b>recorder</b> — you type the group\'s answer (one keyboard at a time).'
+    : isPresenter
+      ? '🎤 You are the <b>presenter</b> — if your group is picked, you share the answer. The recorder (✏️) types it.'
+      : 'Your group\'s <b>recorder</b> (✏️) types the answer — follow along here and discuss out loud.';
 
+  renderRobotMirror(state);
   renderSection(state, group, me);
   renderDiscuss(state);
+}
+
+// While the room display is on the robot introduction, mirror it here: the
+// picture and the text, read-only — there's nothing to answer yet.
+let robotSig = null;
+function renderRobotMirror(state) {
+  const box = el('robotBox');
+  const show = state.session.status === 'robot';
+  box.classList.toggle('hidden', !show);
+  el('sectionBox').classList.toggle('hidden', show);
+  if (!show) { robotSig = null; return; }
+  const r = (state.config && state.config.robot) || {};
+  const sig = JSON.stringify(r);
+  if (sig === robotSig) return; // don't rebuild (and flash the image) every poll
+  robotSig = sig;
+  clear(box);
+  const imgs = [...new Set((r.images || []).filter(Boolean))];
+  const list = (title, arr) => arr && arr.length ? h('div', { style:'margin-top:10px;' }, [
+    h('div', { class:'label', text:title }),
+    h('ul', { class:'dim', style:'font-size:0.9rem; margin:6px 0 0; padding-left:18px;' }, arr.map((x) => h('li', { text:x }))),
+  ]) : null;
+  box.append(
+    h('div', { class:'label', text:'THE FICTIONAL ROBOT' }),
+    h('h2', { class:'accent', style:'margin:4px 0 0;', text: r.name || 'Robot' }),
+    r.tagline ? h('div', { class:'mono mute', style:'font-size:0.8rem;', text: r.tagline }) : null,
+    imgs.length ? h('img', { src: imgs[0], alt:'AI-generated robot concept', style:'width:100%; max-height:40vh; object-fit:cover; border:1px solid var(--line); border-radius:var(--radius); margin-top:10px;' }) : null,
+    imgs.length ? h('div', { class:'mono mute', style:'font-size:0.62rem; text-transform:uppercase; letter-spacing:0.06em; margin-top:5px;', text:'⚠ AI-generated concept — not a real robot.' }) : null,
+    r.task ? h('p', { class:'dim', style:'font-size:0.92rem; margin-top:10px;' }, [ h('b', { text:'Task: ' }), r.task ]) : null,
+    r.environment ? h('p', { class:'dim', style:'font-size:0.92rem; margin-top:6px;' }, [ h('b', { text:'Environment: ' }), r.environment ]) : null,
+    list('HOW IT WORKS', r.process),
+    list('WHAT WE ALREADY KNOW', r.assumptions),
+    list('OPERATING LIMITS', r.constraints),
+    list('YOUR JOB IS TO DEFINE', r.unresolvedQuestions),
+  );
 }
 
 function renderSection(state, group, me) {
@@ -149,7 +191,7 @@ function renderSection(state, group, me) {
 
   const secChanged = currentSectionOrder !== sec.order;
   currentSectionOrder = sec.order;
-  el('secLabel').textContent = `ROUND ${sec.order}`;
+  el('secLabel').textContent = state.sections.length > 1 ? `ROUND ${sec.order}` : 'GROUP EXERCISE';
   el('secTitle').textContent = sec.title;
   el('secObjective').textContent = sec.objective || '';
   el('secPrompt').textContent = sec.mainPrompt || '';
@@ -193,20 +235,21 @@ function renderSection(state, group, me) {
     if (!summaryTouched && document.activeElement !== el('summary') && mySub.summary != null) el('summary').value = mySub.summary || '';
   }
 
-  // enable/disable editing — any group member can contribute while the round is open.
-  const editable = open;
+  // enable/disable editing — one keyboard at a time: only the recorder types.
+  const editable = isRecorder && open;
   el('fields').querySelectorAll('textarea').forEach((t) => (t.disabled = !editable));
   el('summary').disabled = !editable;
   el('saveBtn').disabled = !editable;
   el('submitBtn').disabled = !editable;
   const lock = el('recorderLock');
-  if (!open) { lock.classList.remove('hidden'); lock.textContent = 'This round hasn\'t opened yet — hold tight.'; }
+  if (!isRecorder) { lock.classList.remove('hidden'); lock.textContent = 'View-only — your recorder (✏️) types the group\'s answer. It updates here live.'; }
+  else if (!open) { lock.classList.remove('hidden'); lock.textContent = 'This round hasn\'t opened yet — hold tight.'; }
   else lock.classList.add('hidden');
 
   if (mySub && mySub.submitted) el('saveStatus').textContent = 'Submitted ✓';
   // Unmissable submitted state: sticky banner + the submit button flips to "update".
   const isSubmitted = !!(mySub && mySub.submitted);
-  el('subBanner').classList.toggle('hidden', !isSubmitted);
+  el('subBanner').classList.toggle('hidden', !isSubmitted || state.session.status === 'robot');
   el('submitBtn').textContent = isSubmitted ? '✓ Submitted — Update answer' : '▶ Submit';
 }
 

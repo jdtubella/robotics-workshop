@@ -154,6 +154,8 @@ ensureColumn('groups', 'presented_round', 'INTEGER'); // round in which a group 
 ensureColumn('sessions', 'content', 'TEXT'); // per-session content overrides (edited display text + uploaded images)
 ensureColumn('sessions', 'recording_active', 'INTEGER NOT NULL DEFAULT 0'); // last recording heartbeat (epoch ms) -> REC light on the room display
 ensureColumn('sessions', 'facilitator_key', 'TEXT'); // secret minted at creation; required for facilitator/mutating endpoints
+ensureColumn('participants', 'notes_pref', "TEXT NOT NULL DEFAULT 'no'"); // willing to take notes (registration question)
+ensureColumn('participants', 'has_laptop', "TEXT NOT NULL DEFAULT 'no'"); // has a laptop to type on (registration question)
 
 // Uploads: locally they live under assets/ (committed with the repo); on Render
 // they go on the persistent disk beside the DB — the repo path is a deploy

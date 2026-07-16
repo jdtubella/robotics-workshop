@@ -66,8 +66,10 @@ The stage bar is a **sequential guide** — click left to right:
 1. People scan the QR (or type the short URL) and register; the roster fills live.
 2. **Generate** groups (balanced: ≥1 presenter 🎤 per group, same-company separation); **Manage** to
    swap/move/rename/lock; **Reroll** preserves locks; **Finalize**.
-3. Open the round — submissions open automatically, **▶ Start 15:00** arms the round timer, and
-   *anyone in a group* can write the shared answer (fields merge; phones don't clobber each other).
+3. Open the round — submissions open automatically and **▶ Start 15:00** arms the round timer. The
+   group's **recorder ✏️** types the answer (one keyboard at a time); registration asks who's willing
+   to take notes *and* has a laptop, and grouping gives those volunteers the recorder slot (random
+   member otherwise). Everyone else follows along live on their phone.
 4. **🎡 Spin (Random)** picks the presenting group on the wheel; the display shows their full answers.
 5. **🏁 End of workshop**: download the Brief Package and copy the report sign-up emails.
 

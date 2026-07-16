@@ -36,6 +36,11 @@
   .fade { animation: fade 0.5s ease; }
   @keyframes fade { from { opacity:0; transform:translateY(6px);} to {opacity:1; transform:none;} }
   .selected-pop { animation: pop 0.4s ease; }
+  /* Presenter/recorder callouts on the presentation screen */
+  .role-callout { display:flex; align-items:center; gap:12px; background:var(--bg-3);
+    border:1px solid var(--accent); border-radius:var(--radius); padding:10px 18px; }
+  .role-callout.rc-rec { border-color:var(--line-2); }
+  .role-callout .rc-name { font-size:1.5rem; font-weight:800; letter-spacing:-0.01em; }
   @keyframes pop { 0%{transform:scale(0.7);opacity:0;} 100%{transform:scale(1);opacity:1;} }
   .join-name { animation: fade 0.5s ease; }
   /* Roster cards */
@@ -458,24 +463,31 @@ function robot(state) {
   const r = (state.config && state.config.robot) || {};
   const list = (title, arr) => arr && arr.length ? h('div', {}, [
     h('div', { class:'label', text:title }),
-    h('ul', { class:'big-list dim', style:'font-size:1.05rem; margin-top:6px;' }, arr.map((x) => h('li', { text:x }))),
+    h('ul', { class:'big-list dim', style:'font-size:0.98rem; margin-top:6px; padding-left:20px;' }, arr.map((x) => h('li', { text:x }))),
   ]) : null;
   const real = uniqueImageList(r.images);
   const imgs = real.length ? real : ['/assets/robot/robot-placeholder.svg'];
+  // Image leads: it takes the majority of the width and most of the height.
+  // The four lists sit in a 2×2 grid so the text column stays short — which
+  // keeps the auto-fit zoom near 1 and the type large.
   return h('div', { class:'col grow' }, [
     head(state),
-    h('div', { class:'row grow', style:'gap:44px; align-items:flex-start;' }, [
-      imageGallery(imgs, imgs[0], 'robot', { style:'flex:0 0 auto; width:min(54vw,820px); position:sticky; top:76px; align-self:flex-start;', featureStyle:'max-height:64vh;' }),
-      h('div', { class:'col grow' }, [
-        h('div', { class:'label', text:'THE FICTIONAL ROBOT' }),
-        h('h1', { class:'display', style:'font-size:3.2rem;', text: r.name || 'ROBOT — TBD' }),
-        r.tagline ? h('p', { class:'accent', style:'font-size:1.2rem;', text: r.tagline }) : null,
-        r.task ? h('p', { class:'dim', style:'font-size:1.05rem;' }, [ h('b',{text:'Task: '}), r.task ]) : null,
-        r.environment ? h('p', { class:'dim', style:'font-size:1.05rem;' }, [ h('b',{text:'Environment: '}), r.environment ]) : null,
-        list('HOW IT WORKS', r.process),
-        list('WHAT WE ALREADY KNOW', r.assumptions),
-        list('OPERATING LIMITS', r.constraints),
-        list('YOUR JOB IS TO DEFINE', r.unresolvedQuestions),
+    h('div', { class:'row grow', style:'gap:36px; align-items:stretch;' }, [
+      imageGallery(imgs, imgs[0], 'robot', { style:'flex:1 1 58%; min-width:0;', featureStyle:'width:100%; max-height:68vh;', autoRotateMs: 10000 }),
+      h('div', { class:'col', style:'flex:1 1 42%; min-width:0; gap:12px;' }, [
+        h('div', {}, [
+          h('div', { class:'label', text:'THE FICTIONAL ROBOT' }),
+          h('h1', { class:'display', style:'font-size:2.7rem;', text: r.name || 'ROBOT — TBD' }),
+          r.tagline ? h('p', { class:'accent', style:'font-size:1.1rem; margin-top:2px;', text: r.tagline }) : null,
+        ]),
+        r.task ? h('p', { class:'dim', style:'font-size:1rem;' }, [ h('b',{text:'Task: '}), r.task ]) : null,
+        r.environment ? h('p', { class:'dim', style:'font-size:1rem;' }, [ h('b',{text:'Environment: '}), r.environment ]) : null,
+        h('div', { class:'grid cols-2', style:'gap:14px 28px; margin-top:4px;' }, [
+          list('HOW IT WORKS', r.process),
+          list('WHAT WE ALREADY KNOW', r.assumptions),
+          list('OPERATING LIMITS', r.constraints),
+          list('YOUR JOB IS TO DEFINE', r.unresolvedQuestions),
+        ]),
       ]),
     ]),
   ]);
@@ -503,7 +515,7 @@ function groups(state) {
     head(state, { timer: ensureTimer() }),
     h('div', { class:'label', text:'FIND YOUR GROUP' }),
     h('h1', { text:'Group Assignments' }),
-    h('p', { class:'mute', text:'🎤 presenter — shares the group\'s answer if picked' }),
+    h('p', { class:'mute', text:'🎤 presenter — shares if picked   ✏️ recorder — types the answer' }),
     cards,
   ]);
 }
@@ -531,7 +543,7 @@ function section(state) {
     subbar,
     h('div', { class:'row grow', style:'gap:40px; align-items:flex-start;' }, [
       h('div', { class:'grow', style:'display:flex; flex-direction:column;' }, [
-        h('div', { class:'label', text:`ROUND ${sec.order||''}` }),
+        h('div', { class:'label', text: state.sections.length > 1 ? `ROUND ${sec.order||''}` : 'GROUP EXERCISE' }),
         h('h1', { style:'font-size:2.6rem;', text: sec.title || '—' }),
         h('p', { class:'accent', style:'font-size:1.3rem; max-width:48ch; margin-top:10px;', text: sec.mainPrompt || '' }),
         h('p', { class:'dim', style:'font-size:1rem; max-width:56ch; margin-top:8px;', text: sec.scenario || sec.objective || '' }),
@@ -552,7 +564,7 @@ function discussion(state) {
   // Render each round the group answered: headline + its field answers.
   const sectionBlocks = answers.map((a) => h('div', { class:'panel', style:'margin-top:14px;' }, [
     h('div', { class:'spread' }, [
-      h('div', { class:'label', text: `ROUND ${a.sectionOrder} — ${a.title}` }),
+      h('div', { class:'label', text: state.sections.length > 1 ? `ROUND ${a.sectionOrder} — ${a.title}` : a.title }),
       a.submitted ? null : h('span', { class:'pill st-working', style:'font-size:0.65rem;' }, [ h('span',{class:'dot'}), 'DRAFT' ]),
     ]),
     a.summary ? h('p', { class:'accent', style:'font-size:1.25rem; margin-top:8px;', text: a.summary }) : null,
@@ -562,11 +574,28 @@ function discussion(state) {
     ]))) : null,
   ]));
 
+  // Who does what: the presenter gets a loud callout, the recorder a labelled one.
+  const showNames = state.session.publicNames;
+  const nameOf = (p, fallback) => (p ? (showNames ? p.name : fallback) : null);
+  const presenter = g && g.presenterId ? pById.get(g.presenterId) : null;
+  const recorder = g && g.recorderId ? pById.get(g.recorderId) : null;
+  const roleRow = g ? h('div', { class:'row', style:'gap:14px; margin:10px 0 4px; flex-wrap:wrap;' }, [
+    presenter ? h('div', { class:'role-callout' }, [
+      h('span', { style:'font-size:1.5rem;', text:'🎤' }),
+      h('div', {}, [ h('div', { class:'label', text:'PRESENTS' }), h('div', { class:'rc-name', text: nameOf(presenter, 'Presenter') }) ]),
+    ]) : null,
+    recorder ? h('div', { class:'role-callout rc-rec' }, [
+      h('span', { style:'font-size:1.5rem;', text:'✏️' }),
+      h('div', {}, [ h('div', { class:'label', text:'RECORDED' }), h('div', { class:'rc-name', text: nameOf(recorder, 'Recorder') }) ]),
+    ]) : null,
+  ]) : null;
+
   return h('div', { class:'col grow selected-pop' }, [
     head(state, { timer: ensureTimerSmall() }),
     h('div', { class:'label', text:'NOW PRESENTING' }),
     h('h1', { class:'display', style:'font-size:3.6rem;', text: g ? g.name : 'GROUP' }),
-    g ? h('div', { class:'wrap-cols' }, g.memberIds.map(id => { const p=pById.get(id); return p? h('span',{class:'chip',text: state.session.publicNames? p.name : 'Member'}):null; }).filter(Boolean)) : null,
+    roleRow,
+    g ? h('div', { class:'wrap-cols' }, g.memberIds.map(id => { const p=pById.get(id); if (!p) return null; const ico = roleIcon(p.isPresenter, p.isRecorder); return h('span',{class:'chip'},[ (showNames? p.name : 'Member'), ico ? h('span',{class:'role-ico',text:' '+ico}) : null ]); }).filter(Boolean)) : null,
     sectionBlocks.length ? h('div', {}, sectionBlocks)
       : h('div', { class:'banner', style:'margin-top:16px;', text:'This group hasn\'t submitted any answers yet.' }),
     state.session.notesShared && state.sharedNotes.length ? h('div', { class:'panel', style:'margin-top:14px;' }, [

@@ -4,10 +4,10 @@
 <link rel="stylesheet" href="/css/theme.css">
 <style>
   /* Compact registration: the whole form (incl. Join) should fit a phone screen. */
-  .wrap.col { gap: 12px; }
-  #wsTitle { font-size: 1.35rem; line-height: 1.2; margin-top: 6px; }
-  #form .panel.hud.col { gap: 10px; padding: 16px; }
-  #present .choice { flex: 1; text-align: center; }
+  .wrap.col { gap: 10px; padding-top: 12px; padding-bottom: 12px; }
+  #wsTitle { font-size: 1.3rem; line-height: 1.2; margin-top: 4px; }
+  #form .panel.hud.col { gap: 8px; padding: 14px; }
+  .choice-row .choice { flex: 1; text-align: center; }
 </style>
 
 <div class="topbar">
@@ -33,10 +33,26 @@
       </label>
       <div class="field">
         <span class="label">WILLING TO PRESENT? <span class="mute" style="text-transform:none; letter-spacing:0;">(each group needs one)</span></span>
-        <div class="choice-row" id="present">
+        <div class="choice-row" data-field="present">
           <button type="button" class="choice" data-v="yes">Yes</button>
           <button type="button" class="choice" data-v="maybe">Maybe</button>
           <button type="button" class="choice" data-v="no">No</button>
+        </div>
+      </div>
+      <div class="row" style="gap:12px;">
+        <div class="field grow">
+          <span class="label">WILLING TO TAKE NOTES?</span>
+          <div class="choice-row" data-field="notes">
+            <button type="button" class="choice" data-v="yes">Yes</button>
+            <button type="button" class="choice" data-v="no">No</button>
+          </div>
+        </div>
+        <div class="field grow">
+          <span class="label">LAPTOP TO TYPE ON?</span>
+          <div class="choice-row" data-field="laptop">
+            <button type="button" class="choice" data-v="yes">Yes</button>
+            <button type="button" class="choice" data-v="no">No</button>
+          </div>
         </div>
       </div>
       <label class="field"><span class="label">EMAIL (OPTIONAL)</span><input type="email" id="email" autocomplete="email" placeholder="for the workshop summary"></label>
@@ -69,7 +85,8 @@
 <script src="/js/common.js"></script>
 <script>
 WS.init();
-let present = null; // no pre-selection — a highlighted "No" nudges people away from presenting
+// One entry per question; nothing pre-selected (a highlighted default nudges answers).
+const choices = { present: null, notes: null, laptop: null };
 
 // No ?session=CODE in the URL — let the person type the code from the room display.
 function showCodeEntry() {
@@ -113,11 +130,13 @@ async function boot() {
   setConn('live');
 }
 
-document.querySelectorAll('#present .choice').forEach((c) => {
-  c.addEventListener('click', () => {
-    document.querySelectorAll('#present .choice').forEach((x) => x.classList.remove('active'));
-    c.classList.add('active');
-    present = c.dataset.v;
+document.querySelectorAll('.choice-row[data-field]').forEach((row) => {
+  row.querySelectorAll('.choice').forEach((c) => {
+    c.addEventListener('click', () => {
+      row.querySelectorAll('.choice').forEach((x) => x.classList.remove('active'));
+      c.classList.add('active');
+      choices[row.dataset.field] = c.dataset.v;
+    });
   });
 });
 
@@ -128,7 +147,10 @@ el('submitBtn').addEventListener('click', async () => {
   try {
     const r = await WS.post(`/session/${WS.session}/register`, {
       name, company: el('company').value.trim(), role: el('role').value,
-      presentPref: present || 'no', email: el('email').value.trim(), reportConsent: el('consent').checked,
+      presentPref: choices.present || 'no',
+      notesPref: choices.notes || 'no',
+      hasLaptop: choices.laptop || 'no',
+      email: el('email').value.trim(), reportConsent: el('consent').checked,
     });
     WS.saveParticipant(r.participantId);
     if (r.lateArrival) toast('Registered — you joined after groups formed; the facilitator will place you.');

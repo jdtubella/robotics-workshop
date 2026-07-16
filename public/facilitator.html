@@ -97,6 +97,13 @@
           <p class="dim mini" id="secPrompt"></p>
         </div>
 
+        <!-- Read-aloud crib sheet: the active round's prompt + discussion questions. -->
+        <div id="readPanel" class="panel col hidden" style="border-left:3px solid var(--accent);">
+          <div class="label">📣 READ ALOUD — <span id="readTitle"></span></div>
+          <p id="readPrompt" class="accent" style="font-weight:700; margin:6px 0 0;"></p>
+          <ul id="readDiscuss" class="dim" style="font-size:0.95rem; margin:8px 0 0; padding-left:18px;"></ul>
+        </div>
+
         <!-- Record + transcribe (auto per slide) -->
         <div class="panel col">
           <div class="spread"><div class="label">🎙 RECORD &amp; TRANSCRIBE</div>
@@ -294,7 +301,7 @@ function renderStageNav(s) {
     if (token.startsWith('sec:')) {
       const sec = secByKey.get(token.slice(4));
       if (!sec) return;
-      label = `R${sec.section_order} · ${sec.title}`;
+      label = s.sections.length > 1 ? `R${sec.section_order} · ${sec.title}` : sec.title;
       active = inRound && s.session.currentSection === sec.section_order;
       navigate = () => post(`/session/${WS.session}/section`, { set: sec.section_order });
     } else {
@@ -329,6 +336,17 @@ function renderSection(s) {
   el('secNum').textContent = s.session.currentSection || 0;
   el('secTitle').textContent = s.currentSection ? s.currentSection.title : '(none)';
   el('secPrompt').textContent = s.currentSection ? s.currentSection.mainPrompt : '';
+
+  // Read-aloud crib sheet while a round (or its discussion) is on screen.
+  const sec = s.currentSection;
+  const showRead = !!sec && ['section', 'discussion'].includes(s.session.status);
+  el('readPanel').classList.toggle('hidden', !showRead);
+  if (showRead) {
+    el('readTitle').textContent = sec.title.toUpperCase();
+    el('readPrompt').textContent = sec.mainPrompt || '';
+    const ul = el('readDiscuss'); clear(ul);
+    for (const q of sec.discuss || []) ul.appendChild(h('li', { text: q }));
+  }
 }
 
 // ---- Live display editor ---------------------------------------------------
@@ -553,9 +571,12 @@ let segSection = 0, segLabel = '';
 function recInfo(s) {
   const st = s.session.status;
   const n = s.session.currentSection || 0;
+  // Single-section format: use the exercise's title instead of "Round 1".
+  const roundName = s.sections.length > 1 ? 'Round ' + n
+    : (s.currentSection && s.currentSection.title) || 'Group Exercise';
   switch (st) {
-    case 'section':    return { key: 'section:' + n,    section: n, label: 'Round ' + n };
-    case 'discussion': return { key: 'discussion:' + n, section: n, label: 'Round ' + n + ' — Discussion' };
+    case 'section':    return { key: 'section:' + n,    section: n, label: roundName };
+    case 'discussion': return { key: 'discussion:' + n, section: n, label: roundName + ' — Discussion' };
     case 'welcome':    return { key: 'welcome',  section: 0, label: 'Welcome' };
     case 'agenda':     return { key: 'agenda',   section: 0, label: 'Agenda' };
     case 'robot':      return { key: 'robot',    section: 0, label: 'Robot Introduction' };

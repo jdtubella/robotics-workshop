@@ -300,6 +300,8 @@ function buildState(code, { participantId } = {}) {
       company: p.company,
       role: p.role,
       presentPref: p.present_pref,
+      notesPref: p.notes_pref,
+      hasLaptop: p.has_laptop,
       groupId: p.group_id,
       isPresenter: !!p.is_presenter,
       isRecorder: !!p.is_recorder,
@@ -513,17 +515,19 @@ router.get('/session/:code/emails', (req, res) => {
 
 router.post('/session/:code/register', (req, res) => {
   const s = requireSession(res, req.params.code); if (!s) return; // participant route — no key
-  const { name, company, role, presentPref, email, reportConsent } = req.body;
+  const { name, company, role, presentPref, notesPref, hasLaptop, email, reportConsent } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required' });
   const id = uid('p');
   const now = Date.now();
   const late = s.groups_finalized ? 1 : 0;
+  const yn = (v) => (v === 'yes' ? 'yes' : 'no');
   db.prepare(
-    `INSERT INTO participants (id, session_code, name, company, role, present_pref, email, report_consent, late_arrival, created_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO participants (id, session_code, name, company, role, present_pref, notes_pref, has_laptop, email, report_consent, late_arrival, created_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, s.code, String(name).trim(), (company || '').trim(), (role || '').trim(),
     ['yes', 'maybe', 'no'].includes(presentPref) ? presentPref : 'no',
+    yn(notesPref), yn(hasLaptop),
     (email || '').trim() || null, reportConsent ? 1 : 0, late, now, now
   );
   logActivity({ session_code: s.code, actor: id, action: 'register', new_value: name });
@@ -691,7 +695,9 @@ function fixGroupRoles(code, gid) {
     presenter = cand ? cand.id : null;
   }
   if (!recorder) {
-    const cand = members.find((m) => m.id !== presenter) || members[0];
+    // Prefer a notes+laptop volunteer (non-presenter), then any non-presenter.
+    const vol = members.filter((m) => m.id !== presenter && m.notes_pref === 'yes' && m.has_laptop === 'yes');
+    const cand = vol[0] || members.find((m) => m.id !== presenter) || members[0];
     recorder = cand ? cand.id : null;
   }
   db.prepare('UPDATE participants SET is_presenter = 0, is_recorder = 0 WHERE group_id = ?').run(gid);
@@ -707,8 +713,9 @@ router.post('/session/:code/submission', (req, res) => {
   const { participantId, response, summary, submit } = req.body;
   const p = db.prepare('SELECT * FROM participants WHERE id = ? AND session_code = ?').get(participantId, s.code);
   if (!p || !p.group_id) return res.status(400).json({ error: 'You are not in a group.' });
-  // Any group member can save/submit the group's answer (the recorder is just a
-  // suggested lead) — so a submission always lands regardless of who's holding the phone.
+  // One keyboard at a time: only the group's recorder (a volunteer who said yes
+  // to note-taking + laptop, or a random pick otherwise) types the answer.
+  if (!p.is_recorder) return res.status(403).json({ error: 'Only your group\'s recorder (✏️) types the answer — one keyboard at a time.' });
   if (s.submission_status !== 'open') return res.status(409).json({ error: 'Submissions are closed.' });
   if (!s.current_section) return res.status(409).json({ error: 'No active section.' });
 
@@ -959,8 +966,8 @@ router.post('/session/:code/sim/participants', (req, res) => {
     .get(s.code).n;
   const now = Date.now();
   const ins = db.prepare(
-    `INSERT INTO participants (id, session_code, name, company, role, present_pref, sim_answers, late_arrival, created_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO participants (id, session_code, name, company, role, present_pref, notes_pref, has_laptop, sim_answers, late_arrival, created_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const tx = db.transaction(() => {
     for (let k = 0; k < count; k++) {
@@ -968,7 +975,8 @@ router.post('/session/:code/sim/participants', (req, res) => {
       const person = simPerson(idx % POOL_SIZE);
       const suffix = idx >= POOL_SIZE ? ` #${Math.floor(idx / POOL_SIZE) + 1}` : '';
       ins.run(uid('p'), s.code, person.name + suffix, person.company, person.role,
-        person.presentPref, JSON.stringify(person.answers), s.groups_finalized ? 1 : 0, now + k, now + k);
+        person.presentPref, person.notesPref, person.hasLaptop,
+        JSON.stringify(person.answers), s.groups_finalized ? 1 : 0, now + k, now + k);
     }
   });
   tx();

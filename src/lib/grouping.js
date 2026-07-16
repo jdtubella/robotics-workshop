@@ -165,11 +165,21 @@ function assignGroups(participants, opts = {}) {
     }
   }
 
-  // --- Recorder per group (default: a non-presenter member) -----------------
+  // --- Recorder per group ----------------------------------------------------
+  // Prefer someone who volunteered to take notes AND has a laptop to type on
+  // (non-presenter first); otherwise fall back to a random non-presenter.
   for (const g of groups) {
     if (g.recorderId && g.memberIds.includes(g.recorderId)) continue;
-    const nonPresenter = g.memberIds.find((id) => id !== g.presenterId);
-    g.recorderId = nonPresenter || g.presenterId || g.memberIds[0] || null;
+    const members = g.memberIds.map((id) => byId.get(id)).filter(Boolean);
+    const isVol = (p) => norm(p.notes_pref) === 'yes' && norm(p.has_laptop) === 'yes';
+    const pools = [
+      members.filter((p) => isVol(p) && p.id !== g.presenterId),
+      members.filter(isVol),
+      members.filter((p) => p.id !== g.presenterId),
+      members,
+    ];
+    const pool = pools.find((arr) => arr.length) || [];
+    g.recorderId = pool.length ? pool[Math.floor(rand() * pool.length)].id : null;
   }
 
   return {
