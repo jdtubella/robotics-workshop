@@ -12,14 +12,31 @@
   .rejoin .mono { font-size:0.85rem; color:var(--text-dim); }
   .code-pill { font-family:var(--mono); font-weight:800; letter-spacing:0.14em; color:var(--accent);
     border:1px solid var(--accent-dim); border-radius:var(--radius); padding:2px 10px; margin-top:3px; font-size:1rem; }
-  .robot-img { width: min(50vw, 760px); max-width: 100%; max-height: 66vh; object-fit: cover;
+  /* Images are never cropped: contain keeps the whole picture and its proportions. */
+  .robot-img { width: min(50vw, 760px); max-width: 100%; max-height: 66vh; height: auto; object-fit: contain;
     border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); }
   .robot-img.sticky { position: sticky; top: 76px; }
   /* Feature image + thumbnail carousel */
   .gallery { display:flex; flex-direction:column; gap:14px; min-width:0; }
   .gallery.center { align-items:center; }
-  .feature-img { width:100%; max-width:100%; object-fit:cover; border:1px solid var(--line);
-    border-radius:var(--radius); background:var(--bg-2); }
+  .feat-wrap { position:relative; width:100%; max-width:100%; }
+  .feature-img { display:block; width:100%; max-width:100%; height:auto; object-fit:contain;
+    border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-2); }
+  /* Drag-to-resize grip on the bottom-right corner of the feature image */
+  .img-grip { position:absolute; right:-2px; bottom:-2px; width:38px; height:38px; cursor:nwse-resize;
+    display:flex; align-items:flex-end; justify-content:flex-end; padding:3px 5px; z-index:5;
+    color:#120a06; background:var(--accent); border-radius:10px 0 var(--radius) 0; font-size:1rem;
+    line-height:1; opacity:0.85; user-select:none; touch-action:none; }
+  .img-grip:hover { opacity:1; }
+  /* Display size controls (font +/- and reset) — for the projector operator */
+  .disp-ctl { position:fixed; bottom:14px; left:50%; transform:translateX(-50%); z-index:70;
+    display:flex; align-items:center; gap:8px; padding:7px 12px; opacity:0.35; transition:opacity .15s;
+    background:rgba(12,12,13,0.9); border:1px solid var(--line-2); border-radius:999px; backdrop-filter:blur(6px); }
+  .disp-ctl:hover { opacity:1; }
+  .disp-ctl .dc-label { font-family:var(--mono); font-size:0.62rem; letter-spacing:0.1em; color:var(--text-mute);
+    text-transform:uppercase; }
+  .disp-ctl button { padding:4px 12px; font-size:0.9rem; font-weight:800; line-height:1; min-width:0; }
+  .disp-ctl .dc-sep { width:1px; height:20px; background:var(--line-2); }
   .thumbs { display:flex; gap:12px; flex-wrap:wrap; }
   .thumbs.center { justify-content:center; }
   .thumb { width:132px; height:82px; object-fit:cover; border:2px solid var(--line-2);
@@ -88,6 +105,15 @@
 <div class="scanline"></div>
 <div id="recBadge" class="rec-badge hidden" role="status" aria-live="polite"><span class="rec-dot"></span> REC</div>
 <div id="stage" class="stage"><div class="panel">Connecting to session…</div></div>
+<div id="dispCtl" class="disp-ctl">
+  <span class="dc-label">Text</span>
+  <button id="fontDown" title="Smaller text">A−</button>
+  <button id="fontUp" title="Larger text">A+</button>
+  <span class="dc-sep"></span>
+  <span class="dc-label">Drag ⤡ on image to resize</span>
+  <span class="dc-sep"></span>
+  <button id="ctlReset" title="Reset text &amp; image to auto-fit">⟲ Fit</button>
+</div>
 
 <script src="/js/common.js"></script>
 <script>
@@ -95,8 +121,36 @@ WS.init();
 let countdown = null, timerEl = null, countdownSmall = null, timerElSmall = null, qrImg = null, reelActive = false, lastSelected = null, lastStatus = null, lastSig = null;
 let spinning = false, lastSpinNonce = null, spinInit = false;
 
+// ---- Operator size controls (font +/- and drag-to-resize image) ------------
+// Once the operator touches a control we hand them full manual control: the
+// auto-fit stops shrinking so their chosen sizes actually stick. "⟲ Fit" undoes it.
+const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+let fontScale = clampNum(parseFloat(localStorage.getItem('ws_disp_font')) || 1, 0.6, 2.6);
+let imgScale = clampNum(parseFloat(localStorage.getItem('ws_disp_img')) || 1, 0.4, 2.2);
+let manualFit = localStorage.getItem('ws_disp_manual') === '1';
+
+function applyFontScale() { document.documentElement.style.fontSize = (16 * fontScale) + 'px'; }
+function goManual() { manualFit = true; localStorage.setItem('ws_disp_manual', '1'); }
+function setFont(v) {
+  fontScale = clampNum(v, 0.6, 2.6);
+  localStorage.setItem('ws_disp_font', String(fontScale));
+  goManual(); applyFontScale(); fitStage();
+}
+function wireControls() {
+  el('fontUp').addEventListener('click', () => setFont(fontScale + 0.1));
+  el('fontDown').addEventListener('click', () => setFont(fontScale - 0.1));
+  el('ctlReset').addEventListener('click', () => {
+    fontScale = 1; imgScale = 1; manualFit = false;
+    localStorage.removeItem('ws_disp_font'); localStorage.removeItem('ws_disp_img'); localStorage.removeItem('ws_disp_manual');
+    applyFontScale();
+    lastSig = null; if (WS.lastState) render(WS.lastState); // rebuild to clear image widths
+  });
+}
+
 function boot() {
   if (!WS.session) { el('stage').innerHTML = '<div class="panel">Missing session code.</div>'; return; }
+  applyFontScale();
+  wireControls();
   WS.startPolling(2500, render);
 }
 
@@ -162,6 +216,8 @@ function ensureTimerSmall() {
 // grow (up to 1.35×) to fill the screen — maximum possible text size everywhere.
 function fitStage() {
   const stage = el('stage');
+  // Manual mode: the operator drives font/image size, so don't fight them.
+  if (manualFit) { stage.style.zoom = ''; stage.style.minHeight = '100vh'; return; }
   // Measure the TRUE content height (min-height would peg it at 100vh).
   stage.style.zoom = '';
   stage.style.minHeight = '0';
@@ -302,11 +358,50 @@ function imageGallery(images, featureDefault, key, opts = {}) {
     }, opts.autoRotateMs);
   }
   if (opts.autoRotateMs && list.length > 1) startRotate();
-  return h('div', { class: 'gallery' + (opts.center ? ' center' : ''), style: opts.style || '' }, [
-    feature,
+
+  // Optional drag-to-resize grip on the feature image.
+  let featureNode = feature;
+  if (opts.resizable) {
+    const grip = h('div', { class:'img-grip', title:'Drag to resize the image', text:'⤡' });
+    featureNode = h('div', { class:'feat-wrap' }, [ feature, grip ]);
+  }
+  const gallery = h('div', { class: 'gallery' + (opts.center ? ' center' : ''), style: opts.style || '' }, [
+    featureNode,
     list.length > 1 ? thumbs : null,
     h('div', { class: 'ai-note', text: '⚠ AI-generated concept — this is not a real robot.' }),
   ]);
+  if (opts.resizable) {
+    const baseVw = opts.baseVw || 52;
+    // Re-apply a previously dragged size, and wire the grip for live resizing.
+    if (imgScale !== 1) { gallery.style.flex = '0 0 auto'; gallery.style.width = (imgScale * baseVw) + 'vw'; }
+    attachResize(gallery.querySelector('.img-grip'), gallery, baseVw);
+  }
+  return gallery;
+}
+
+// Live drag-to-resize: the operator drags the corner grip to size the image.
+function attachResize(grip, galleryEl, baseVw) {
+  if (!grip) return;
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    goManual(); fitStage();              // stop auto-zoom so the drag is 1:1
+    const startX = e.clientX;
+    const startW = galleryEl.getBoundingClientRect().width;
+    const vw = window.innerWidth;
+    galleryEl.style.flex = '0 0 auto';
+    const move = (ev) => {
+      const w = clampNum(startW + (ev.clientX - startX), vw * 0.18, vw * 0.95);
+      galleryEl.style.width = w + 'px';
+      imgScale = (w / vw) * (100 / baseVw);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      localStorage.setItem('ws_disp_img', String(imgScale));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
 }
 
 // Truck-tire "wheel of fortune". Segments are the groups that haven't presented
@@ -477,7 +572,7 @@ function robot(state) {
   return h('div', { class:'col grow' }, [
     head(state),
     h('div', { class:'row', style:'gap:36px; align-items:stretch;' }, [
-      imageGallery(imgs, imgs[0], 'robot', { style:'flex:1 1 55%; min-width:0;', featureStyle:'width:100%; max-height:56vh;', autoRotateMs: 10000 }),
+      imageGallery(imgs, imgs[0], 'robot', { style:'flex:1 1 55%; min-width:0;', featureStyle:'width:100%; height:auto;', autoRotateMs: 10000, resizable:true, baseVw:52 }),
       h('div', { class:'col', style:'flex:1 1 45%; min-width:0; gap:12px;' }, [
         h('div', {}, [
           h('div', { class:'label', text:'THE FICTIONAL ROBOT' }),
@@ -554,7 +649,7 @@ function section(state) {
         discuss,
       ]),
       secImages.length
-        ? imageGallery(secImages, sec.image || secImages[0], 'section:' + (sec.order || ''), { style:'flex:0 0 auto; width:min(52vw,820px);', featureStyle:'max-height:66vh;', autoRotateMs: 10000 })
+        ? imageGallery(secImages, sec.image || secImages[0], 'section:' + (sec.order || ''), { style:'flex:0 0 auto; width:min(52vw,820px);', featureStyle:'width:100%; height:auto;', autoRotateMs: 10000, resizable:true, baseVw:44 })
         : null,
     ]),
   ]);
