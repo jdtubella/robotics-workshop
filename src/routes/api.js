@@ -70,10 +70,6 @@ function shareBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
-function votesPerParticipant() {
-  try { return loadConfig().defaults.votesPerParticipant || 2; } catch (_) { return 2; }
-}
-
 function timerRemaining(s) {
   if (s.timer_paused_remaining != null) return { running: false, remainingMs: Math.max(0, s.timer_paused_remaining) };
   if (s.timer_ends_at != null) return { running: true, remainingMs: Math.max(0, s.timer_ends_at - Date.now()) };

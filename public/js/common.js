@@ -108,7 +108,6 @@ function makeCountdown(el, { lowAt = 15000 } = {}) {
   setInterval(render, 250);
   return {
     sync(timer, serverNow) {
-      const skew = serverNow ? Date.now() - serverNow : 0;
       running = !!(timer && timer.running);
       if (running && timer.remainingMs != null) endsAt = Date.now() + timer.remainingMs;
       else { endsAt = null; frozenMs = timer ? timer.remainingMs : null; }

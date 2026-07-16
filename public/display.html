@@ -81,7 +81,7 @@
 </style>
 
 <div class="scanline"></div>
-<div id="recBadge" class="rec-badge hidden"><span class="rec-dot"></span> REC</div>
+<div id="recBadge" class="rec-badge hidden" role="status" aria-live="polite"><span class="rec-dot"></span> REC</div>
 <div id="stage" class="stage"><div class="panel">Connecting to session…</div></div>
 
 <script src="/js/common.js"></script>
@@ -269,7 +269,7 @@ function imageGallery(images, featureDefault, key, opts = {}) {
     galleryKey = key;
     galleryFeatured = list.includes(featureDefault) ? featureDefault : list[0];
   }
-  const feature = h('img', { class: 'feature-img', src: galleryFeatured, style: opts.featureStyle || '' });
+  const feature = h('img', { class: 'feature-img', src: galleryFeatured, alt: 'AI-generated robot concept', style: opts.featureStyle || '' });
   const thumbs = h('div', { class: 'thumbs' + (opts.center ? ' center' : '') });
   const setFeatured = (src) => {
     galleryFeatured = src; feature.src = src;
@@ -277,7 +277,7 @@ function imageGallery(images, featureDefault, key, opts = {}) {
   };
   if (list.length > 1) {
     for (const src of list) {
-      const t = h('img', { class: 'thumb' + (src === galleryFeatured ? ' active' : ''), src });
+      const t = h('img', { class: 'thumb' + (src === galleryFeatured ? ' active' : ''), src, alt: 'Robot concept thumbnail' });
       t.addEventListener('click', () => {
         setFeatured(src);
         if (opts.autoRotateMs) startRotate(); // restart the clock after a manual pick

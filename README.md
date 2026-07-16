@@ -45,27 +45,34 @@ node scripts/seed-demo.js <SESSION_CODE> 20
 Injects 20 varied participants (with same-company clusters) so you can test group balancing and sync
 without 20 phones.
 
-## Filling in the robot (pending)
+## Editing workshop content
 
-All robot + section content lives in **`config/workshop.json`** — no code changes needed:
+All workshop content (robot, agenda, the round's prompts/fields, images, the short join URL) lives in
+**`config/workshop.json`** and is editable two ways:
 
-1. Edit the `robot` block: `name`, `tagline`, `task`, `environment`, `assumptions`, `constraints`,
-   `unresolvedQuestions`, and `images` (array of paths).
-2. Drop image files into **`assets/robot/`** and point `robot.images` at them
-   (e.g. `/assets/robot/my-robot.png`).
-3. The three workshop sections, their fields, prompts, and default timers are also here — tweak freely.
+1. **In the app (preferred):** on the facilitator deck, toggle **✎ Edit Display** — every stage shows
+   its editable fields. Saves write straight into the config, so they apply to the current session and
+   every future one.
+2. **In the file:** edit `config/workshop.json`, drop images into `assets/robot/`, commit, push.
 
-Config is re-read when each new session is created, so edits take effect on the next **Create Session**.
+Config is re-read live, so edits appear on the room display within a poll (~3s).
 
 ## The workshop flow (facilitator deck)
 
-1. **Stage buttons** (Welcome → Roster → Robot → Groups → Section → Discuss → Final) drive the room display.
-2. **Generate** groups once people have registered; use **Manage** to swap/move/rename, change
-   presenter (🎤) / recorder (✏️), **Lock** people, **Reroll** (locks preserved), then **Finalize**.
-3. Per section: **Open Submissions** → groups' recorders submit → **Close** → **Reveal All** →
-   **Open Voting** → **Reveal Votes** → **Select a group** (Random / Not-Yet-Heard / Highest Voted) →
-   discuss and capture **Notes** (⭐ mark key points; optionally show on display).
-4. **Next** advances sections. AI is intentionally out-of-loop: nothing blocks on it.
+The stage bar is a **sequential guide** — click left to right:
+
+**Welcome → Agenda → In the Room → Groups → ⚙ Generate → ✓ Finalize → Robot → Define the Robot → 🎡 Spin → Final**
+
+1. People scan the QR (or type the short URL) and register; the roster fills live.
+2. **Generate** groups (balanced: ≥1 presenter 🎤 per group, same-company separation); **Manage** to
+   swap/move/rename/lock; **Reroll** preserves locks; **Finalize**.
+3. Open the round — submissions open automatically, **▶ Start 15:00** arms the round timer, and
+   *anyone in a group* can write the shared answer (fields merge; phones don't clobber each other).
+4. **🎡 Spin (Random)** picks the presenting group on the wheel; the display shows their full answers.
+5. **🏁 End of workshop**: download the Brief Package and copy the report sign-up emails.
+
+Auto-record captures audio + a live transcript per slide (Chrome/Edge) and stores both on the server.
+Reordering stages lives behind **⇄ Arrange**. AI is intentionally out-of-loop: nothing blocks on it.
 
 ## Export / synthesis (no API charges)
 
@@ -116,6 +123,34 @@ npx localtunnel --port 3000          # prints a public https URL
 
 `shareBaseUrl` auto-detects the tunnel's public host, so the QR updates itself. Note: your laptop must
 stay awake and online for the whole session — less reliable than a deploy for a real event.
+
+## Operations (read before workshop day)
+
+**Where data lives:**
+
+| Data | Local | Render (deployed) | Survives restart? |
+|---|---|---|---|
+| Database (sessions, answers, transcripts) | `data/workshop.db` | `/data/workshop.db` | ✅ |
+| Audio recordings | `data/recordings/` | `/data/recordings/` | ✅ |
+| Workshop config (live edits) | `config/workshop.json` (repo) | `/data/workshop.json` (seeded from the repo copy) | ✅ |
+| Uploaded images | `assets/uploads/` (repo) | `/data/uploads/` | ✅ |
+
+On Render, pushing a changed `config/workshop.json` only takes effect if the live copy was **never
+edited in the app** since it was seeded; otherwise live edits win. To force-reset, delete
+`/data/workshop.json` + `/data/workshop.json.seed` from a Render shell and restart.
+
+**Facilitator key:** created with each session and embedded in the facilitator link
+(`/facilitator?session=CODE&key=fk_…`). It's required for all controls, exports, recordings, and the
+emails list — participants with just the session code can only register and submit. **Open the deck
+from the link shown at session creation** (the key also lands in that browser's localStorage).
+
+**Simulation tools** (synthetic people/submissions) are hidden on the deployed site unless the
+`ALLOW_SIM=1` env var is set. They're always available locally.
+
+**Short join URL:** the display shows `joinShortUrl` (e.g. `bit.ly/…`) as the typed URL — point that
+bit.ly at `https://<your-app>.onrender.com/join`. The QR always encodes the real working URL.
+
+**Tests:** `npm test` (grouping-algorithm invariants).
 
 ## Deferred (not in this version)
 
