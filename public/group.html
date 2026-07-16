@@ -133,9 +133,10 @@ function render(state) {
       ico ? h('span', { class: 'role-ico', text: ico }) : null,
     ]));
   }
-  el('roleNote').innerHTML = isRecorder
-    ? '✏️ You are the group\'s <b>recorder</b> — you\'re leading, but anyone in the group can add to the answer.'
-    : 'Anyone in the group can enter the answer here — the recorder (✏️) just leads.';
+  const isPresenter = !!(me && me.isPresenter);
+  el('roleNote').innerHTML = isPresenter
+    ? '🎤 You are the group\'s <b>presenter</b> — if your group is picked, you share the answer. Everyone can write below.'
+    : 'Anyone in the group can write the answer below — it saves as one shared response.';
 
   renderSection(state, group, me);
   renderDiscuss(state);

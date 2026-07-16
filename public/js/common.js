@@ -157,10 +157,10 @@ function setConn(state) {
   c.innerHTML = `<span class="dot"></span>${label}`;
 }
 
+// Only the presenter matters now (the wheel needs one per group); anyone in a
+// group can write the answer, so the old "recorder" badge is retired.
 function roleIcon(isPresenter, isRecorder) {
-  const p = isPresenter ? '🎤' : '';
-  const r = isRecorder ? '✏️' : '';
-  return (p + ' ' + r).trim();
+  return isPresenter ? '🎤' : '';
 }
 
 // Map a participant list into a quick lookup.
