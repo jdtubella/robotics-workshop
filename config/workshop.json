@@ -142,5 +142,6 @@
     "Owner or developer",
     "Technology provider",
     "Other"
-  ]
+  ],
+  "displayLayout": {}
 }

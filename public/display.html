@@ -122,28 +122,50 @@ let countdown = null, timerEl = null, countdownSmall = null, timerElSmall = null
 let spinning = false, lastSpinNonce = null, spinInit = false;
 
 // ---- Operator size controls (font +/- and drag-to-resize image) ------------
-// Once the operator touches a control we hand them full manual control: the
-// auto-fit stops shrinking so their chosen sizes actually stick. "⟲ Fit" undoes it.
+// Sizing is remembered PER PAGE and saved to the server config, so it sticks for
+// this session AND every future session (any machine). Touching a control switches
+// that page to manual mode (auto-fit stops shrinking); "⟲ Fit" resets the page.
 const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
-let fontScale = clampNum(parseFloat(localStorage.getItem('ws_disp_font')) || 1, 0.6, 2.6);
-let imgScale = clampNum(parseFloat(localStorage.getItem('ws_disp_img')) || 1, 0.4, 2.2);
-let manualFit = localStorage.getItem('ws_disp_manual') === '1';
+let curFontScale = 1, curImgScale = 1, manualFit = false, curPageKey = null, loadedPageKey = null;
 
-function applyFontScale() { document.documentElement.style.fontSize = (16 * fontScale) + 'px'; }
-function goManual() { manualFit = true; localStorage.setItem('ws_disp_manual', '1'); }
+function pageKeyOf(state) {
+  const st = state.session.status;
+  if (st === 'section') return state.currentSection ? 'sec:' + state.currentSection.key : 'section';
+  if (st === 'discussion') return 'discussion';
+  return st;
+}
+// Read this page's saved sizing the first time we land on it. While we stay on the
+// page, local edits win — so a background poll can never revert a fresh drag.
+function loadLayoutForPage(state) {
+  curPageKey = pageKeyOf(state);
+  if (curPageKey === loadedPageKey) return;
+  loadedPageKey = curPageKey;
+  const L = ((state.config && state.config.displayLayout) || {})[curPageKey];
+  curFontScale = L && L.font ? L.font : 1;
+  curImgScale = L && L.img ? L.img : 1;
+  manualFit = !!L;
+}
+function applyFontScale() { document.documentElement.style.fontSize = (16 * curFontScale) + 'px'; }
+
+let layoutSaveTimer = null;
+function saveLayout(reset) {
+  const body = reset ? { pageKey: curPageKey, font: null, img: null }
+                     : { pageKey: curPageKey, font: curFontScale, img: curImgScale };
+  clearTimeout(layoutSaveTimer);
+  layoutSaveTimer = setTimeout(() => { WS.post(`/session/${WS.session}/display-layout`, body).catch(() => {}); }, 300);
+}
 function setFont(v) {
-  fontScale = clampNum(v, 0.6, 2.6);
-  localStorage.setItem('ws_disp_font', String(fontScale));
-  goManual(); applyFontScale(); fitStage();
+  curFontScale = clampNum(v, 0.1, 4); // no practical floor — text can go tiny
+  manualFit = true;
+  applyFontScale(); fitStage(); saveLayout();
 }
 function wireControls() {
-  el('fontUp').addEventListener('click', () => setFont(fontScale + 0.1));
-  el('fontDown').addEventListener('click', () => setFont(fontScale - 0.1));
+  el('fontUp').addEventListener('click', () => setFont(curFontScale + 0.1));
+  el('fontDown').addEventListener('click', () => setFont(curFontScale - 0.1));
   el('ctlReset').addEventListener('click', () => {
-    fontScale = 1; imgScale = 1; manualFit = false;
-    localStorage.removeItem('ws_disp_font'); localStorage.removeItem('ws_disp_img'); localStorage.removeItem('ws_disp_manual');
-    applyFontScale();
-    lastSig = null; if (WS.lastState) render(WS.lastState); // rebuild to clear image widths
+    curFontScale = 1; curImgScale = 1; manualFit = false;
+    applyFontScale(); saveLayout(true);
+    lastSig = null; if (WS.lastState) render(WS.lastState); // rebuild to clear the image width
   });
 }
 
@@ -251,6 +273,8 @@ function render(state) {
   // slide — keep the scroll position so the room doesn't see the page jump.
   const keepScroll = status === lastStatus ? window.scrollY : 0;
 
+  loadLayoutForPage(state); // set this page's saved image/text size before building it
+
   clear(stage);
   let body;
   switch (status) {
@@ -267,6 +291,8 @@ function render(state) {
   stage.appendChild(body);
   stage.firstChild && stage.firstChild.classList && stage.firstChild.classList.add('fade');
 
+  // Apply this page's saved text size, then fit/measure.
+  applyFontScale();
   // Auto-fit now and again as images finish loading (they change the height).
   fitStage();
   stage.querySelectorAll('img').forEach((im) => {
@@ -372,8 +398,8 @@ function imageGallery(images, featureDefault, key, opts = {}) {
   ]);
   if (opts.resizable) {
     const baseVw = opts.baseVw || 52;
-    // Re-apply a previously dragged size, and wire the grip for live resizing.
-    if (imgScale !== 1) { gallery.style.flex = '0 0 auto'; gallery.style.width = (imgScale * baseVw) + 'vw'; }
+    // Re-apply this page's saved size, and wire the grip for live resizing.
+    if (curImgScale !== 1) { gallery.style.flex = '0 0 auto'; gallery.style.width = (curImgScale * baseVw) + 'vw'; }
     attachResize(gallery.querySelector('.img-grip'), gallery, baseVw);
   }
   return gallery;
@@ -384,20 +410,20 @@ function attachResize(grip, galleryEl, baseVw) {
   if (!grip) return;
   grip.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    goManual(); fitStage();              // stop auto-zoom so the drag is 1:1
+    manualFit = true; fitStage();        // stop auto-zoom so the drag is 1:1
     const startX = e.clientX;
     const startW = galleryEl.getBoundingClientRect().width;
     const vw = window.innerWidth;
     galleryEl.style.flex = '0 0 auto';
     const move = (ev) => {
-      const w = clampNum(startW + (ev.clientX - startX), vw * 0.18, vw * 0.95);
+      const w = clampNum(startW + (ev.clientX - startX), vw * 0.12, vw * 0.98);
       galleryEl.style.width = w + 'px';
-      imgScale = (w / vw) * (100 / baseVw);
+      curImgScale = (w / vw) * (100 / baseVw);
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      localStorage.setItem('ws_disp_img', String(imgScale));
+      saveLayout(); // persist this page's size to the server config
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);

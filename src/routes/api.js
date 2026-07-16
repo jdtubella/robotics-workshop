@@ -272,6 +272,7 @@ function buildState(code, { participantId } = {}) {
       finalImage: pick(meta, 'finalImage', baseCfg.finalImage),
       joinShortUrl: pick(meta, 'joinShortUrl', baseCfg.joinShortUrl),
       facilitatorScript: baseCfg.facilitatorScript || {},
+      displayLayout: baseCfg.displayLayout || {},
       roleCategories: baseCfg.roleCategories,
       defaults: baseCfg.defaults,
     },
@@ -911,6 +912,30 @@ router.post('/session/:code/content', (req, res) => {
   if (isImage) autoCommit(`Editor: update ${scope}${sectionKey ? ' ' + sectionKey : ''} image`, ['config/workshop.json', 'assets/uploads']);
   logActivity({ session_code: s.code, action: 'content_edit', new_value: `${scope}.${sectionKey ? sectionKey + '.' : ''}${field}` });
   ok(res, s.code, req);
+});
+
+// Room-display layout (image + text size) saved PER PAGE to the shared config, so
+// the operator's sizing sticks for this session and every future one. Keyless on
+// purpose: the room-display link carries no facilitator key, and this is only
+// cosmetic sizing (values are clamped; an operator can always hit "Fit" to reset).
+router.post('/session/:code/display-layout', (req, res) => {
+  const s = requireSession(res, req.params.code); if (!s) return;
+  const pageKey = String(req.body.pageKey || '').slice(0, 48);
+  if (!pageKey) return res.status(400).json({ error: 'pageKey required' });
+  let config;
+  try { config = loadConfig(); } catch (e) { return res.status(500).json({ error: 'Could not read config.' }); }
+  config.displayLayout = config.displayLayout || {};
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  const font = num(req.body.font), img = num(req.body.img);
+  if (font == null && img == null) {
+    delete config.displayLayout[pageKey]; // reset this page to auto-fit
+  } else {
+    const cur = config.displayLayout[pageKey] || {};
+    const clamp = (n, lo, hi, d) => (n == null ? d : Math.min(hi, Math.max(lo, n)));
+    config.displayLayout[pageKey] = { font: clamp(font, 0.1, 5, cur.font || 1), img: clamp(img, 0.15, 5, cur.img || 1) };
+  }
+  try { saveConfig(config); } catch (e) { return res.status(500).json({ error: 'Could not save.' }); }
+  res.json({ ok: true });
 });
 
 // Reset the live workshop content to the repo defaults (discards live edits).
